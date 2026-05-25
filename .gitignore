@@ -1,0 +1,27 @@
+# Data and Engineering Results
+*.xlsx
+*.csv
+*.dat
+*.docx
+results/
+Results/
+DBM/
+temp/
+build/
+Ref/
+ref/
+Instruction/
+instruction/
+Plan/
+plan/
+
+# CAD/Engineering Temp Files (Solidworks/Ansys)
+~$*
+*.tmp
+*.log
+
+# Python & Environment
+__pycache__/
+*.pyc
+.venv/
+.env
