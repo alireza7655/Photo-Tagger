@@ -1,27 +1,130 @@
-# Data and Engineering Results
+# ==========================================
+# 1. Project References & Documentation
+# ==========================================
+# Excludes heavy calculation books, local references, and design basis memos
+[Rr]ef/
+[Ii]nstruction/
+[Mm]anual/
+[Pp]lan/
+[Dd]bm/
+
+# ==========================================
+# 2. Project Deliverables, Results & Exports
+# ==========================================
+# Excludes local run outputs, generated plots, and temporary data dumps
+[Rr]esults/
+[Oo]utput/
+
+# ==========================================
+# 3. Data, Analytics & Specific File Types
+# ==========================================
+# Blocks massive datasets, raw logs, or spreadsheet binaries from clogging git history
 *.xlsx
+*.xls
+*.xlsm
 *.csv
 *.dat
 *.docx
-results/
-Results/
-DBM/
-temp/
-build/
-Ref/
-ref/
-Instruction/
-instruction/
-Plan/
-plan/
+*.doc
+*.pdf
+*.pptx
 
-# CAD/Engineering Temp Files (Solidworks/Ansys)
+# ==========================================
+# 4. Temporary Files, Backups & System Logs
+# ==========================================
+# Microsoft Office temporary owner files (e.g., ~$document.docx)
 ~$*
 *.tmp
 *.log
+*.bak
+*.swp
 
-# Python & Environment
+# ==========================================
+# 5. Python Core & Environment Configuration
+# ==========================================
+# Byte-compiled / optimized / DLL files
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments & alternative dependency standard structures
 .venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+__pypackages__/
+
+# ==========================================
+# 6. Python Distribution, Build & Packaging
+# ==========================================
+# Keeps your workspace clean if you compile scripts or generate distributions
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+*.manifest
+*.spec
+
+# ==========================================
+# 7. Testing, Coverage & Code Quality Caches
+# ==========================================
+.cache
+.pytest_cache/
+.mypy_cache/
+.hypothesis/
+.test-logs/
+.coverage
+.coverage.*
+htmlcov/
+*.cover
+*.py,cover
+coverage.xml
+nosetests.xml
+
+# ==========================================
+# 8. Environment Variables & Secrets (CRITICAL)
+# ==========================================
 .env
+.env.local
+.env.*
+*.secret
+*.pem
+*.key
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# ==========================================
+# 9. IDE, Editor & OS Specific Footprints
+# ==========================================
+# Windows & macOS system artifacts
+Thumbs.db
+desktop.ini
+.DS_Store
+src/.DS_Store
+
+# Editors (VS Code, Cursor, Spyder, PyCharm, etc.)
+.vscode/
+*.code-workspace
+.cursorrules
+.spyderproject
+.spyproject
+.ropeproject
+.idea/
