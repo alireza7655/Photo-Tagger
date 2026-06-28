@@ -18,7 +18,7 @@ class PhotoTaggerApp(ctk.CTk):
         super().__init__()
         
         # Window setup
-        self.title("Photo Tagger (Rev.1.0)")
+        self.title("Photo Tagger (Rev.2.0)")
         self.geometry("1300x850")
         self.minsize(1000, 700)
         
@@ -45,6 +45,13 @@ class PhotoTaggerApp(ctk.CTk):
         self.pad_y = 0
         self.disp_w = 0
         self.disp_h = 0
+        
+        # Zoom & Pan state
+        self.zoom_factor = 1.0
+        self.view_center_x = 0.5
+        self.view_center_y = 0.5
+        self.pan_start_x = 0
+        self.pan_start_y = 0
         
         # Drawing boxes state
         self.drawing = False
@@ -86,6 +93,13 @@ class PhotoTaggerApp(ctk.CTk):
         self.btn_save = ctk.CTkButton(self.header_frame, text="💾 Save Tags", command=self.save_current, width=120, fg_color="#10b981", hover_color="#059669", font=("Segoe UI", 12, "bold"))
         self.btn_save.pack(side="left", padx=15, pady=12)
         
+        # Output Format Selector
+        self.lbl_format = ctk.CTkLabel(self.header_frame, text="Output Format:", font=("Segoe UI", 11, "bold"))
+        self.lbl_format.pack(side="left", padx=(10, 5), pady=12)
+        
+        self.combo_format = ctk.CTkComboBox(self.header_frame, values=["Original", "JPEG", "PNG", "WebP"], width=100, font=("Segoe UI", 11))
+        self.combo_format.pack(side="left", padx=(0, 15), pady=12)
+        
         # Right header section: Tag editing helpers
         self.btn_clear_tags = ctk.CTkButton(self.header_frame, text="❌ Clear All", command=self.clear_all_tags, width=100, fg_color="#ef4444", hover_color="#dc2626", font=("Segoe UI", 11, "bold"))
         self.btn_clear_tags.pack(side="right", padx=15, pady=12)
@@ -120,6 +134,16 @@ class PhotoTaggerApp(ctk.CTk):
         self.canvas.bind("<Motion>", self.on_canvas_motion)
         self.canvas.bind("<Leave>", self.on_canvas_leave)
         
+        # Panning bindings (Right Click Drag)
+        self.canvas.bind("<ButtonPress-3>", self.on_pan_press)
+        self.canvas.bind("<B3-Motion>", self.on_pan_drag)
+        self.canvas.bind("<ButtonRelease-3>", self.on_pan_release)
+        
+        # Zoom bindings (Mouse Wheel)
+        self.canvas.bind("<MouseWheel>", self.on_mouse_zoom)
+        self.canvas.bind("<Button-4>", lambda event: self.on_mouse_zoom_linux(event, True))
+        self.canvas.bind("<Button-5>", lambda event: self.on_mouse_zoom_linux(event, False))
+        
         # Right Panel: Sidebar Controls
         self.sidebar_frame = ctk.CTkFrame(self.main_split, corner_radius=10, width=320)
         self.sidebar_frame.grid(row=0, column=1, sticky="nsew", padx=(5, 0), pady=0)
@@ -148,7 +172,11 @@ class PhotoTaggerApp(ctk.CTk):
             "4. Type names next to face crops on the right.\n"
             "5. Click & drag on image to manually add boxes.\n"
             "6. Enter a general photo description if desired.\n"
-            "7. Click 'Save Tags' to save metadata and export HTML/SVG."
+            "7. Click 'Save Tags' to save metadata & export files.\n\n"
+            "💡 Pro-Tips:\n"
+            "• Zoom: Scroll MouseWheel over image.\n"
+            "• Pan: Right-Click and drag zoomed image.\n"
+            "• Convert: Select 'Output Format' before saving."
         )
         self.instr_desc = ctk.CTkLabel(self.instr_card, text=instr_text, font=("Segoe UI", 10.5), justify="left", text_color="#cbd5e1", anchor="w")
         self.instr_desc.pack(fill="x", padx=10, pady=(0, 8))
@@ -170,8 +198,8 @@ class PhotoTaggerApp(ctk.CTk):
         self.faces_scroll = ctk.CTkScrollableFrame(self.sidebar_frame, fg_color="transparent")
         self.faces_scroll.grid(row=4, column=0, sticky="nsew", padx=5, pady=(0, 5))
         
-        # Sidebar: Developer Credit with Rev.1.0
-        self.credit_label = ctk.CTkLabel(self.sidebar_frame, text="Created by Alireza Mostaghasi (2026) | Rev.1.0", font=("Segoe UI", 10, "italic"), text_color="#6b7280")
+        # Sidebar: Developer Credit with Rev.2.0
+        self.credit_label = ctk.CTkLabel(self.sidebar_frame, text="Created by Alireza Mostaghasi (2026) | Rev.2.0", font=("Segoe UI", 10, "italic"), text_color="#6b7280")
         self.credit_label.grid(row=5, column=0, sticky="ew", padx=15, pady=8)
         
         # ----------------------------------------------------
@@ -189,6 +217,22 @@ class PhotoTaggerApp(ctk.CTk):
         
         self.btn_next = ctk.CTkButton(self.bottom_frame, text="Next ▶", command=self.next_image, width=90, font=("Segoe UI", 11, "bold"))
         self.btn_next.pack(side="left", padx=10, pady=8)
+        
+        # Zoom controls (centered in the bottom bar)
+        self.zoom_frame = ctk.CTkFrame(self.bottom_frame, fg_color="transparent")
+        self.zoom_frame.pack(side="left", expand=True, anchor="center")
+        
+        self.btn_zoom_out = ctk.CTkButton(self.zoom_frame, text="➖", command=self.zoom_out, width=32, height=28, font=("Segoe UI", 12, "bold"))
+        self.btn_zoom_out.pack(side="left", padx=5)
+        
+        self.lbl_zoom_level = ctk.CTkLabel(self.zoom_frame, text="Zoom: 100%", font=("Segoe UI", 11, "bold"), width=80)
+        self.lbl_zoom_level.pack(side="left", padx=5)
+        
+        self.btn_zoom_in = ctk.CTkButton(self.zoom_frame, text="➕", command=self.zoom_in, width=32, height=28, font=("Segoe UI", 12, "bold"))
+        self.btn_zoom_in.pack(side="left", padx=5)
+        
+        self.btn_zoom_reset = ctk.CTkButton(self.zoom_frame, text="🔄 Reset", command=self.zoom_reset, width=60, height=28, font=("Segoe UI", 10, "bold"), fg_color="#4b5563", hover_color="#374151")
+        self.btn_zoom_reset.pack(side="left", padx=(10, 5))
         
         # Right aligned Status label
         self.lbl_status = ctk.CTkLabel(self.bottom_frame, text="Please open a photo or folder to begin.", font=("Segoe UI", 11, "italic"), text_color="gray")
@@ -210,11 +254,18 @@ class PhotoTaggerApp(ctk.CTk):
         self.set_status(f"Loading {os.path.basename(path)}...")
         
         try:
-            # 1. Reset selection states
+            # 1. Reset selection states and zoom parameters
             self.selected_face_idx = None
             self.hovered_face_idx = None
             self.drawing = False
             self.faces = []
+            self.zoom_factor = 1.0
+            self.view_center_x = 0.5
+            self.view_center_y = 0.5
+            if hasattr(self, 'lbl_zoom_level'):
+                self.lbl_zoom_level.configure(text="Zoom: 100%")
+            if hasattr(self, 'combo_format'):
+                self.combo_format.set("Original")
             
             # 2. Open image in PIL using BytesIO to release the file lock on Windows
             import io
@@ -270,16 +321,36 @@ class PhotoTaggerApp(ctk.CTk):
         orig_w, orig_h = self.original_pil_image.size
         
         # Compute scaling factor to fit image in canvas
-        self.scale = min(canvas_w / orig_w, canvas_h / orig_h)
-        self.disp_w = int(orig_w * self.scale)
-        self.disp_h = int(orig_h * self.scale)
+        base_scale = min(canvas_w / orig_w, canvas_h / orig_h)
+        scale = base_scale * self.zoom_factor
         
-        # Offset to center image
-        self.pad_x = (canvas_w - self.disp_w) // 2
-        self.pad_y = (canvas_h - self.disp_h) // 2
+        # Visible original image dimensions
+        crop_w = min(orig_w, canvas_w / scale)
+        crop_h = min(orig_h, canvas_h / scale)
         
-        # Resize image for display
-        resized_pil = self.original_pil_image.resize((self.disp_w, self.disp_h), Image.Resampling.LANCZOS)
+        # Clamp view center so crop box stays inside image bounds
+        half_visible_w_norm = (crop_w / 2.0) / orig_w
+        self.view_center_x = max(half_visible_w_norm, min(1.0 - half_visible_w_norm, self.view_center_x))
+        
+        half_visible_h_norm = (crop_h / 2.0) / orig_h
+        self.view_center_y = max(half_visible_h_norm, min(1.0 - half_visible_h_norm, self.view_center_y))
+        
+        # Crop boundaries in original pixels
+        crop_left = self.view_center_x * orig_w - crop_w / 2.0
+        crop_right = self.view_center_x * orig_w + crop_w / 2.0
+        crop_top = self.view_center_y * orig_h - crop_h / 2.0
+        crop_bottom = self.view_center_y * orig_h + crop_h / 2.0
+        
+        # Display dimensions on canvas
+        display_w = int(orig_w * scale) if orig_w * scale < canvas_w else canvas_w
+        display_h = int(orig_h * scale) if orig_h * scale < canvas_h else canvas_h
+        
+        self.pad_x = (canvas_w - display_w) // 2
+        self.pad_y = (canvas_h - display_h) // 2
+        
+        # Crop and resize display portion
+        cropped = self.original_pil_image.crop((crop_left, crop_top, crop_right, crop_bottom))
+        resized_pil = cropped.resize((display_w, display_h), Image.Resampling.LANCZOS)
         self.tk_image = ImageTk.PhotoImage(resized_pil)
         
         # Draw image centered
@@ -287,11 +358,9 @@ class PhotoTaggerApp(ctk.CTk):
         
         # Draw face bounding boxes
         for idx, face in enumerate(self.faces):
-            # Convert normalized coordinates to canvas coordinates
-            left = self.pad_x + (face['x'] - face['w'] / 2.0) * self.disp_w
-            top = self.pad_y + (face['y'] - face['h'] / 2.0) * self.disp_h
-            w_px = face['w'] * self.disp_w
-            h_px = face['h'] * self.disp_h
+            # Calculate top-left and size on canvas
+            cx, cy = self.normalized_to_canvas(face['x'] - face['w']/2.0, face['y'] - face['h']/2.0)
+            w_px, h_px = self.normalized_size_to_canvas(face['w'], face['h'])
             
             # Formatting variables based on hover/selection state
             if idx == self.selected_face_idx:
@@ -305,11 +374,11 @@ class PhotoTaggerApp(ctk.CTk):
                 box_width = 2
                 
             # Draw bounding box
-            self.canvas.create_rectangle(left, top, left + w_px, top + h_px, outline=outline_color, width=box_width)
+            self.canvas.create_rectangle(cx, cy, cx + w_px, cy + h_px, outline=outline_color, width=box_width)
             
             # Draw label background and text above box
             name = face['name'].strip() if face['name'] else f"Person {idx + 1}"
-            label_text_id = self.canvas.create_text(left + 2, top - 15, text=name, fill="white", font=("Segoe UI", 9, "bold"), anchor="nw")
+            label_text_id = self.canvas.create_text(cx + 2, cy - 15, text=name, fill="white", font=("Segoe UI", 9, "bold"), anchor="nw")
             lbl_bbox = self.canvas.bbox(label_text_id)
             if lbl_bbox:
                 # Add background for visibility
@@ -422,6 +491,106 @@ class PhotoTaggerApp(ctk.CTk):
             btn_delete.grid(row=0, column=2, padx=8, pady=8)
             
     # ----------------------------------------------------
+    # Coordinate Mapping Helpers for Zoom & Pan
+    # ----------------------------------------------------
+    def canvas_to_normalized(self, cx, cy):
+        """
+        Converts canvas coordinate (cx, cy) to normalized image coordinate (nx, ny).
+        Returns (None, None) if the coordinate is outside the display boundaries.
+        """
+        if not self.original_pil_image:
+            return None, None
+            
+        canvas_w = max(50, self.canvas.winfo_width())
+        canvas_h = max(50, self.canvas.winfo_height())
+        orig_w, orig_h = self.original_pil_image.size
+        
+        base_scale = min(canvas_w / orig_w, canvas_h / orig_h)
+        scale = base_scale * self.zoom_factor
+        
+        crop_w = min(orig_w, canvas_w / scale)
+        crop_h = min(orig_h, canvas_h / scale)
+        
+        crop_left = self.view_center_x * orig_w - crop_w / 2.0
+        crop_top = self.view_center_y * orig_h - crop_h / 2.0
+        
+        display_w = int(orig_w * scale) if orig_w * scale < canvas_w else canvas_w
+        display_h = int(orig_h * scale) if orig_h * scale < canvas_h else canvas_h
+        
+        pad_x = (canvas_w - display_w) // 2
+        pad_y = (canvas_h - display_h) // 2
+        
+        px_x = cx - pad_x
+        px_y = cy - pad_y
+        
+        if px_x < 0 or px_x > display_w or px_y < 0 or px_y > display_h:
+            return None, None
+            
+        orig_pixel_x = crop_left + (px_x / display_w) * crop_w
+        orig_pixel_y = crop_top + (px_y / display_h) * crop_h
+        
+        nx = orig_pixel_x / orig_w
+        ny = orig_pixel_y / orig_h
+        
+        nx = max(0.0, min(1.0, nx))
+        ny = max(0.0, min(1.0, ny))
+        return nx, ny
+
+    def normalized_to_canvas(self, nx, ny):
+        """
+        Converts normalized image coordinate (nx, ny) to canvas coordinate (cx, cy).
+        """
+        if not self.original_pil_image:
+            return 0, 0
+            
+        canvas_w = max(50, self.canvas.winfo_width())
+        canvas_h = max(50, self.canvas.winfo_height())
+        orig_w, orig_h = self.original_pil_image.size
+        
+        base_scale = min(canvas_w / orig_w, canvas_h / orig_h)
+        scale = base_scale * self.zoom_factor
+        
+        crop_w = min(orig_w, canvas_w / scale)
+        crop_h = min(orig_h, canvas_h / scale)
+        
+        crop_left = self.view_center_x * orig_w - crop_w / 2.0
+        crop_top = self.view_center_y * orig_h - crop_h / 2.0
+        
+        display_w = int(orig_w * scale) if orig_w * scale < canvas_w else canvas_w
+        display_h = int(orig_h * scale) if orig_h * scale < canvas_h else canvas_h
+        
+        pad_x = (canvas_w - display_w) // 2
+        pad_y = (canvas_h - display_h) // 2
+        
+        cx = pad_x + ((nx * orig_w - crop_left) / crop_w) * display_w
+        cy = pad_y + ((ny * orig_h - crop_top) / crop_h) * display_h
+        return cx, cy
+
+    def normalized_size_to_canvas(self, nw, nh):
+        """
+        Converts normalized width and height to canvas pixel dimensions.
+        """
+        if not self.original_pil_image:
+            return 0, 0
+            
+        canvas_w = max(50, self.canvas.winfo_width())
+        canvas_h = max(50, self.canvas.winfo_height())
+        orig_w, orig_h = self.original_pil_image.size
+        
+        base_scale = min(canvas_w / orig_w, canvas_h / orig_h)
+        scale = base_scale * self.zoom_factor
+        
+        crop_w = min(orig_w, canvas_w / scale)
+        crop_h = min(orig_h, canvas_h / scale)
+        
+        display_w = int(orig_w * scale) if orig_w * scale < canvas_w else canvas_w
+        display_h = int(orig_h * scale) if orig_h * scale < canvas_h else canvas_h
+        
+        cw = (nw * orig_w / crop_w) * display_w
+        ch = (nh * orig_h / crop_h) * display_h
+        return cw, ch
+
+    # ----------------------------------------------------
     # Canvas Event Handlers
     # ----------------------------------------------------
     def on_canvas_resize(self, event):
@@ -431,19 +600,16 @@ class PhotoTaggerApp(ctk.CTk):
         if not self.original_pil_image:
             return
             
-        # Check if click is inside the actual scaled image boundary
-        if (self.pad_x <= event.x <= self.pad_x + self.disp_w) and (self.pad_y <= event.y <= self.pad_y + self.disp_h):
+        # Get coordinates in normalized form
+        nx, ny = self.canvas_to_normalized(event.x, event.y)
+        
+        if nx is not None and ny is not None:
             # Check if clicked on an existing face box
-            # Calculate clicked position in normalized coordinates
-            norm_x = (event.x - self.pad_x) / self.disp_w
-            norm_y = (event.y - self.pad_y) / self.disp_h
-            
-            clicked_idx = self.get_face_at_coords(norm_x, norm_y)
+            clicked_idx = self.get_face_at_coords(nx, ny)
             
             if clicked_idx is not None:
                 # Select the face and focus the corresponding entry widget
                 self.select_face(clicked_idx)
-                # Shift focus to the name entry field in the sidebar
                 if clicked_idx < len(self.face_entries):
                     self.face_entries[clicked_idx].focus_set()
             else:
@@ -458,12 +624,20 @@ class PhotoTaggerApp(ctk.CTk):
                 self.draw_canvas()
                 
     def on_canvas_drag(self, event):
-        if not self.drawing:
+        if not self.drawing or not self.original_pil_image:
             return
             
-        # Constrain dragging coordinates to the image bounds
-        self.draw_current_x = max(self.pad_x, min(self.pad_x + self.disp_w, event.x))
-        self.draw_current_y = max(self.pad_y, min(self.pad_y + self.disp_h, event.y))
+        # Constrain dragging coordinates to the canvas image bounds
+        canvas_w = max(50, self.canvas.winfo_width())
+        canvas_h = max(50, self.canvas.winfo_height())
+        orig_w, orig_h = self.original_pil_image.size
+        base_scale = min(canvas_w / orig_w, canvas_h / orig_h)
+        scale = base_scale * self.zoom_factor
+        display_w = int(orig_w * scale) if orig_w * scale < canvas_w else canvas_w
+        display_h = int(orig_h * scale) if orig_h * scale < canvas_h else canvas_h
+        
+        self.draw_current_x = max(self.pad_x, min(self.pad_x + display_w, event.x))
+        self.draw_current_y = max(self.pad_y, min(self.pad_y + display_h, event.y))
         
         self.draw_canvas()
         
@@ -480,36 +654,35 @@ class PhotoTaggerApp(ctk.CTk):
         # Only create a box if it is reasonably sized (e.g. at least 15 pixels)
         if w_px > 15 and h_px > 15:
             # Map start/end pixels to normalized coords
-            x1 = (self.draw_start_x - self.pad_x) / self.disp_w
-            y1 = (self.draw_start_y - self.pad_y) / self.disp_h
-            x2 = (self.draw_current_x - self.pad_x) / self.disp_w
-            y2 = (self.draw_current_y - self.pad_y) / self.disp_h
+            nx1, ny1 = self.canvas_to_normalized(self.draw_start_x, self.draw_start_y)
+            nx2, ny2 = self.canvas_to_normalized(self.draw_current_x, self.draw_current_y)
             
-            # Compute normalized center coordinates
-            cx = (x1 + x2) / 2.0
-            cy = (y1 + y2) / 2.0
-            nw = abs(x2 - x1)
-            nh = abs(y2 - y1)
-            
-            # Add to faces list
-            new_face = {
-                'name': '',
-                'x': cx,
-                'y': cy,
-                'w': nw,
-                'h': nh
-            }
-            self.faces.append(new_face)
-            self.is_modified = True
-            
-            # Auto-select the newly created face
-            self.selected_face_idx = len(self.faces) - 1
-            self.rebuild_sidebar()
-            self.draw_canvas()
-            
-            # Focus on the newly created name entry
-            if self.selected_face_idx < len(self.face_entries):
-                self.face_entries[self.selected_face_idx].focus_set()
+            if nx1 is not None and nx2 is not None:
+                # Compute normalized center coordinates
+                cx = (nx1 + nx2) / 2.0
+                cy = (ny1 + ny2) / 2.0
+                nw = abs(nx2 - nx1)
+                nh = abs(ny2 - ny1)
+                
+                # Add to faces list
+                new_face = {
+                    'name': '',
+                    'x': cx,
+                    'y': cy,
+                    'w': nw,
+                    'h': nh
+                }
+                self.faces.append(new_face)
+                self.is_modified = True
+                
+                # Auto-select the newly created face
+                self.selected_face_idx = len(self.faces) - 1
+                self.rebuild_sidebar()
+                self.draw_canvas()
+                
+                # Focus on the newly created name entry
+                if self.selected_face_idx < len(self.face_entries):
+                    self.face_entries[self.selected_face_idx].focus_set()
         else:
             # Clear selection if it was a tiny/invalid drag
             self.selected_face_idx = None
@@ -525,16 +698,140 @@ class PhotoTaggerApp(ctk.CTk):
         self.mouse_y = event.y
         
         # Calculate position in normalized coordinates
-        norm_x = (event.x - self.pad_x) / self.disp_w
-        norm_y = (event.y - self.pad_y) / self.disp_h
+        nx, ny = self.canvas_to_normalized(event.x, event.y)
         
         prev_hovered = self.hovered_face_idx
-        self.hovered_face_idx = self.get_face_at_coords(norm_x, norm_y)
+        if nx is not None and ny is not None:
+            self.hovered_face_idx = self.get_face_at_coords(nx, ny)
+        else:
+            self.hovered_face_idx = None
         
         # Redraw if hover target changed, or if there is an active hovered face
         # (so the tooltip follows the mouse), or if description is present
         if self.hovered_face_idx is not None or self.hovered_face_idx != prev_hovered or self.description:
             self.draw_canvas()
+
+    # ----------------------------------------------------
+    # Zooming & Panning Handlers
+    # ----------------------------------------------------
+    def zoom_in(self):
+        if not self.original_pil_image:
+            return
+        self.zoom_factor = min(10.0, self.zoom_factor + 0.2)
+        self.lbl_zoom_level.configure(text=f"Zoom: {int(self.zoom_factor * 100)}%")
+        self.draw_canvas()
+
+    def zoom_out(self):
+        if not self.original_pil_image:
+            return
+        self.zoom_factor = max(1.0, self.zoom_factor - 0.2)
+        self.lbl_zoom_level.configure(text=f"Zoom: {int(self.zoom_factor * 100)}%")
+        self.draw_canvas()
+
+    def zoom_reset(self):
+        if not self.original_pil_image:
+            return
+        self.zoom_factor = 1.0
+        self.view_center_x = 0.5
+        self.view_center_y = 0.5
+        self.lbl_zoom_level.configure(text="Zoom: 100%")
+        self.draw_canvas()
+
+    def on_mouse_zoom(self, event):
+        if not self.original_pil_image:
+            return
+            
+        # Get coordinates in normalized form before changing zoom
+        canvas_w = max(50, self.canvas.winfo_width())
+        canvas_h = max(50, self.canvas.winfo_height())
+        orig_w, orig_h = self.original_pil_image.size
+        
+        nx, ny = self.canvas_to_normalized(event.x, event.y)
+        if nx is None or ny is None:
+            return
+            
+        # Change zoom factor
+        old_zoom = self.zoom_factor
+        if event.delta > 0:
+            self.zoom_factor = min(10.0, self.zoom_factor + 0.2)
+        else:
+            self.zoom_factor = max(1.0, self.zoom_factor - 0.2)
+            
+        if self.zoom_factor == old_zoom:
+            return
+            
+        # Reposition viewport center around mouse coordinates
+        base_scale = min(canvas_w / orig_w, canvas_h / orig_h)
+        scale_new = base_scale * self.zoom_factor
+        crop_w_new = min(orig_w, canvas_w / scale_new)
+        crop_h_new = min(orig_h, canvas_h / scale_new)
+        
+        if scale_new * orig_w >= canvas_w:
+            crop_left_new = nx * orig_w - event.x / scale_new
+            self.view_center_x = (crop_left_new + crop_w_new / 2.0) / orig_w
+        else:
+            self.view_center_x = 0.5
+            
+        if scale_new * orig_h >= canvas_h:
+            crop_top_new = ny * orig_h - event.y / scale_new
+            self.view_center_y = (crop_top_new + crop_h_new / 2.0) / orig_h
+        else:
+            self.view_center_y = 0.5
+            
+        # Clamp view center so crop box stays inside image
+        half_visible_w_norm = (crop_w_new / 2.0) / orig_w
+        self.view_center_x = max(half_visible_w_norm, min(1.0 - half_visible_w_norm, self.view_center_x))
+        
+        half_visible_h_norm = (crop_h_new / 2.0) / orig_h
+        self.view_center_y = max(half_visible_h_norm, min(1.0 - half_visible_h_norm, self.view_center_y))
+        
+        self.lbl_zoom_level.configure(text=f"Zoom: {int(self.zoom_factor * 100)}%")
+        self.draw_canvas()
+
+    def on_mouse_zoom_linux(self, event, scroll_up):
+        # Mock delta for Linux scrolling
+        event.delta = 120 if scroll_up else -120
+        self.on_mouse_zoom(event)
+
+    def on_pan_press(self, event):
+        if not self.original_pil_image:
+            return
+        self.pan_start_x = event.x
+        self.pan_start_y = event.y
+        self.canvas.configure(cursor="fleur")
+
+    def on_pan_drag(self, event):
+        if not self.original_pil_image:
+            return
+            
+        canvas_w = max(50, self.canvas.winfo_width())
+        canvas_h = max(50, self.canvas.winfo_height())
+        orig_w, orig_h = self.original_pil_image.size
+        base_scale = min(canvas_w / orig_w, canvas_h / orig_h)
+        scale = base_scale * self.zoom_factor
+        
+        dx = event.x - self.pan_start_x
+        dy = event.y - self.pan_start_y
+        
+        self.view_center_x -= (dx / scale) / orig_w
+        self.view_center_y -= (dy / scale) / orig_h
+        
+        crop_w = min(orig_w, canvas_w / scale)
+        crop_h = min(orig_h, canvas_h / scale)
+        
+        half_visible_w_norm = (crop_w / 2.0) / orig_w
+        self.view_center_x = max(half_visible_w_norm, min(1.0 - half_visible_w_norm, self.view_center_x))
+        
+        half_visible_h_norm = (crop_h / 2.0) / orig_h
+        self.view_center_y = max(half_visible_h_norm, min(1.0 - half_visible_h_norm, self.view_center_y))
+        
+        self.pan_start_x = event.x
+        self.pan_start_y = event.y
+        
+        self.draw_canvas()
+
+    def on_pan_release(self, event):
+        self.canvas.configure(cursor="")
             
     def on_canvas_leave(self, event):
         self.mouse_in_canvas = False
@@ -653,31 +950,77 @@ class PhotoTaggerApp(ctk.CTk):
         if not self.current_image_path:
             return
             
-        self.set_status("Saving tags to JPEG metadata...")
+        self.set_status("Saving tags and updating metadata...")
         
         # Read textbox to make sure we get the final edited description
         self.description = self.desc_textbox.get("1.0", "end-1c").strip()
         
-        success = write_photo_metadata(self.current_image_path, self.faces, self.description)
+        # Determine target path and format
+        selected_fmt = self.combo_format.get()
+        original_ext = os.path.splitext(self.current_image_path)[1].lower()
+        
+        target_path = self.current_image_path
+        is_conversion = False
+        
+        if selected_fmt != "Original":
+            fmt_ext_map = {
+                "JPEG": ".jpg",
+                "PNG": ".png",
+                "WebP": ".webp"
+            }
+            target_ext = fmt_ext_map.get(selected_fmt)
+            if target_ext and target_ext != original_ext:
+                target_path = os.path.splitext(self.current_image_path)[0] + target_ext
+                is_conversion = True
+                
+        # Call the metadata writer
+        if is_conversion:
+            success = write_photo_metadata(target_path, self.faces, self.description, original_path=self.current_image_path)
+        else:
+            success = write_photo_metadata(target_path, self.faces, self.description)
+            
         if success:
             # Also write the interactive HTML and SVG versions next to it
-            write_interactive_html(self.current_image_path, self.faces, self.description)
-            write_interactive_svg(self.current_image_path, self.faces, self.description)
+            write_interactive_html(target_path, self.faces, self.description)
+            write_interactive_svg(target_path, self.faces, self.description)
+            
+            old_path = self.current_image_path
+            
+            if is_conversion:
+                # Ask user if they wish to delete original file
+                if messagebox.askyesno("Convert Format", f"Successfully converted and saved to {os.path.basename(target_path)}.\n\nDo you want to delete the original file ({os.path.basename(old_path)})?"):
+                    try:
+                        os.remove(old_path)
+                    except Exception as e:
+                        print(f"Error deleting original file: {e}")
+                        
+                # Update current image path and navigation list
+                self.current_image_path = target_path
+                if self.image_list and 0 <= self.current_image_idx < len(self.image_list):
+                    self.image_list[self.current_image_idx] = target_path
             
             self.is_modified = False
             self.set_status("Metadata, HTML and SVG successfully saved!")
-            messagebox.showinfo("Saved", "Metadata successfully saved to JPEG file, and interactive HTML/SVG versions created!")
-            # Rebuild sidebar to sync thumbnails (in case they shifted slightly)
+            messagebox.showinfo("Saved", "Metadata successfully saved, and interactive HTML/SVG versions created!")
+            
+            # Rebuild sidebar and reload displays
             self.rebuild_sidebar()
             self.draw_canvas()
+            self.update_navigation_controls()
         else:
             messagebox.showerror("Error", "Failed to write tags to file metadata.")
             self.set_status("Error saving metadata.")
             
     def open_file(self):
         file_path = filedialog.askopenfilename(
-            title="Open JPEG Image",
-            filetypes=[("JPEG files", "*.jpg;*.jpeg"), ("All files", "*.*")]
+            title="Open Image",
+            filetypes=[
+                ("Supported Images", "*.jpg;*.jpeg;*.png;*.webp"),
+                ("JPEG files", "*.jpg;*.jpeg"),
+                ("PNG files", "*.png"),
+                ("WebP files", "*.webp"),
+                ("All files", "*.*")
+            ]
         )
         if file_path:
             # Single file mode clears image list
@@ -688,11 +1031,11 @@ class PhotoTaggerApp(ctk.CTk):
     def open_folder(self):
         folder_path = filedialog.askdirectory(title="Open Photo Folder")
         if folder_path:
-            # Gather all JPEGs
+            # Gather all supported images
             self.image_list = []
             for root, dirs, files in os.walk(folder_path):
                 for f in files:
-                    if f.lower().endswith(('.jpg', '.jpeg')):
+                    if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
                         self.image_list.append(os.path.join(root, f))
                 # Only search top-level folder
                 break
@@ -703,7 +1046,7 @@ class PhotoTaggerApp(ctk.CTk):
                 self.current_image_idx = 0
                 self.load_image(self.image_list[0])
             else:
-                messagebox.showinfo("No JPEGs found", "No JPEG files found in selected directory.")
+                messagebox.showinfo("No images found", "No supported image files found in selected directory.")
                 
     def prev_image(self):
         if self.current_image_idx > 0:

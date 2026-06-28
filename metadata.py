@@ -1,5 +1,6 @@
 import xml.etree.ElementTree as ET
 import re
+import os
 from PIL import Image
 
 # Namespace registry for ElementTree to use correct prefixes
@@ -111,28 +112,57 @@ def read_photo_metadata(image_path):
         
     return metadata
 
-def write_photo_metadata(image_path, tags, description):
+def write_photo_metadata(image_path, tags, description, original_path=None):
     """
-    Writes face regions (MWG & Microsoft format) and description (EXIF & XMP) back to the JPEG.
+    Writes face regions (MWG & Microsoft format) and description (EXIF & XMP) back to the target image path.
+    Supports JPEG, PNG, and WebP formats. Handles conversions from original_path.
     """
+    load_path = original_path if original_path else image_path
+    temp_path = image_path + ".tmp"
+    
     try:
-        # Load the original image first
-        with Image.open(image_path) as img:
+        # Load the original/source image
+        with Image.open(load_path) as img:
             width, height = img.size
             existing_xmp_bytes = img.info.get("xmp")
             exif = img.getexif() or Image.Exif()
             
-            # Keep original saving parameters to maintain quality
-            save_params = {
-                'format': 'JPEG',
-                'exif': exif
-            }
-            if 'quality' in img.info:
-                save_params['quality'] = img.info['quality']
+            # Determine target format from extension
+            ext = os.path.splitext(image_path)[1].lower()
+            if ext in ('.jpg', '.jpeg'):
+                fmt = 'JPEG'
+            elif ext == '.png':
+                fmt = 'PNG'
+            elif ext == '.webp':
+                fmt = 'WEBP'
             else:
+                fmt = img.format if img.format else 'JPEG'
+                
+            # Build saving parameters
+            save_params = {
+                'format': fmt
+            }
+            
+            # Update EXIF description (tag 270)
+            if description:
+                exif[270] = description.strip()
+            else:
+                if 270 in exif:
+                    del exif[270]
+                    
+            if fmt in ('JPEG', 'WEBP', 'PNG'):
+                save_params['exif'] = exif
+                
+            # Quality & subsampling settings
+            if fmt == 'JPEG':
+                if 'quality' in img.info:
+                    save_params['quality'] = img.info['quality']
+                else:
+                    save_params['quality'] = 95
+                if 'subsampling' in img.info:
+                    save_params['subsampling'] = img.info['subsampling']
+            elif fmt == 'WEBP':
                 save_params['quality'] = 95
-            if 'subsampling' in img.info:
-                save_params['subsampling'] = img.info['subsampling']
             
             # Parse or create new XMP structure
             root = None
@@ -163,7 +193,7 @@ def write_photo_metadata(image_path, tags, description):
                     desc = ET.SubElement(rdf, '{http://www.w3.org/1999/02/22-rdf-syntax-ns#}Description', {
                         '{http://www.w3.org/1999/02/22-rdf-syntax-ns#}about': ''
                     })
-
+ 
             # Clean existing MWG Regions, Microsoft RegionInfo, and dc:description
             for child in list(desc):
                 if child.tag in (
@@ -172,21 +202,16 @@ def write_photo_metadata(image_path, tags, description):
                     '{http://purl.org/dc/elements/1.1/}description'
                 ):
                     desc.remove(child)
-
-            # Update EXIF description (tag 270)
+ 
+            # Update XMP dc:description
             if description:
-                exif[270] = description.strip()
-                # Update XMP dc:description
                 dc_desc = ET.SubElement(desc, '{http://purl.org/dc/elements/1.1/}description')
                 alt = ET.SubElement(dc_desc, '{http://www.w3.org/1999/02/22-rdf-syntax-ns#}Alt')
                 li = ET.SubElement(alt, '{http://www.w3.org/1999/02/22-rdf-syntax-ns#}li', {
                     '{http://www.w3.org/XML/1998/namespace}lang': 'x-default'
                 })
                 li.text = description.strip()
-            else:
-                if 270 in exif:
-                    del exif[270]
-
+ 
             if tags:
                 # Add MWG Regions
                 mwg_regions = ET.SubElement(desc, '{http://www.metadataworkinggroup.org/schemas/regions/}Regions', {
@@ -199,7 +224,7 @@ def write_photo_metadata(image_path, tags, description):
                 })
                 region_list = ET.SubElement(mwg_regions, '{http://www.metadataworkinggroup.org/schemas/regions/}RegionList')
                 bag = ET.SubElement(region_list, '{http://www.w3.org/1999/02/22-rdf-syntax-ns#}Bag')
-
+ 
                 for t in tags:
                     li = ET.SubElement(bag, '{http://www.w3.org/1999/02/22-rdf-syntax-ns#}li', {
                         '{http://www.w3.org/1999/02/22-rdf-syntax-ns#}parseType': 'Resource'
@@ -215,14 +240,14 @@ def write_photo_metadata(image_path, tags, description):
                     name_elem.text = str(t['name']) if t['name'] is not None else ""
                     type_elem = ET.SubElement(li, '{http://www.metadataworkinggroup.org/schemas/regions/}Type')
                     type_elem.text = 'Face'
-
+ 
                 # Add Microsoft Region Info
                 mp_region_info = ET.SubElement(desc, '{http://ns.microsoft.com/photo/1.2/}RegionInfo', {
                     '{http://www.w3.org/1999/02/22-rdf-syntax-ns#}parseType': 'Resource'
                 })
                 mp_regions = ET.SubElement(mp_region_info, '{http://ns.microsoft.com/photo/1.2/t/RegionInfo#}Regions')
                 mp_bag = ET.SubElement(mp_regions, '{http://www.w3.org/1999/02/22-rdf-syntax-ns#}Bag')
-
+ 
                 for t in tags:
                     left = max(0.0, min(1.0, t['x'] - t['w'] / 2.0))
                     top = max(0.0, min(1.0, t['y'] - t['h'] / 2.0))
@@ -230,30 +255,41 @@ def write_photo_metadata(image_path, tags, description):
                     h = max(0.0, min(1.0 - top, t['h']))
                     rect_str = f"{left:.6f}, {top:.6f}, {w:.6f}, {h:.6f}"
                     
-                    # Create the li element
                     li = ET.SubElement(mp_bag, '{http://www.w3.org/1999/02/22-rdf-syntax-ns#}li')
-                    # Create nested rdf:Description inside the li element (strict MS schema)
                     ET.SubElement(li, '{http://www.w3.org/1999/02/22-rdf-syntax-ns#}Description', {
                         '{http://ns.microsoft.com/photo/1.2/t/Region#}Rectangle': rect_str,
                         '{http://ns.microsoft.com/photo/1.2/t/Region#}PersonDisplayName': str(t['name']) if t['name'] is not None else ""
                     })
-
+ 
             # Serialize XMP block
             xml_str = ET.tostring(root, encoding='utf-8').decode('utf-8')
             packet = f'<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>\n{xml_str}\n<?xpacket end="w"?>'
+            packet_bytes = packet.encode('utf-8')
             
-            # Save the image with new exif and xmp
-            # Pillow modifies the file in place or to a temp file, we can write to a temporary path and then swap,
-            # or just load into memory, delete file/truncate, and rewrite to prevent lock/sharing issues.
-            # To be safest, we save to a new temporary file in the same directory, then replace.
-            temp_path = image_path + ".tmp"
+            # Prepare image to save (convert to RGB if saving to JPEG and mode is RGBA/transparency)
+            save_img = img
+            if fmt == 'JPEG' and img.mode in ('RGBA', 'LA', 'P'):
+                save_img = img.convert('RGB')
+                
+            # Inject XMP block based on format
+            if fmt == 'PNG':
+                from PIL.PngImagePlugin import PngInfo
+                png_info = PngInfo()
+                png_info.add_itxt("XML:com.adobe.xmp", packet)
+                save_params['pnginfo'] = png_info
+            else:
+                save_params['xmp'] = packet_bytes
             
-            img.save(temp_path, xmp=packet.encode('utf-8'), **save_params)
+            # Save the image to the temp path
+            save_img.save(temp_path, **save_params)
             
-        # Replace original with the newly tagged file
-        import os
+        # Replace target path with the newly tagged file
         if os.path.exists(temp_path):
-            if os.path.exists(image_path):
+            if os.path.exists(image_path) and os.path.abspath(image_path) != os.path.abspath(load_path):
+                # If we are converting formats to a different file name, don't remove the original source file!
+                if os.path.exists(image_path):
+                    os.remove(image_path)
+            elif os.path.exists(image_path):
                 os.remove(image_path)
             os.rename(temp_path, image_path)
             return True
@@ -269,13 +305,21 @@ def write_photo_metadata(image_path, tags, description):
 
 def write_interactive_html(image_path, tags, description):
     """
-    Exports a standalone interactive HTML file packaging the JPEG image (in Base64)
+    Exports a standalone interactive HTML file packaging the image (in Base64)
     with CSS-styled hover overlays and tooltips.
     """
     import base64
     import os
     try:
-        # 1. Read JPEG and convert to base64
+        # Determine mime-type from extension
+        ext = os.path.splitext(image_path)[1].lower()
+        mime_type = "image/jpeg"
+        if ext == ".png":
+            mime_type = "image/png"
+        elif ext == ".webp":
+            mime_type = "image/webp"
+
+        # 1. Read image and convert to base64
         with open(image_path, "rb") as f:
             b64_data = base64.b64encode(f.read()).decode("utf-8")
             
@@ -407,7 +451,7 @@ def write_interactive_html(image_path, tags, description):
 </head>
 <body>
     <div class="container">
-        <img src="data:image/jpeg;base64,{b64_data}" alt="Tagged Photo">
+        <img src="data:{mime_type};base64,{b64_data}" alt="Tagged Photo">
         {tags_html}
         {desc_banner_html}
     </div>
@@ -424,17 +468,25 @@ def write_interactive_html(image_path, tags, description):
 
 def write_interactive_svg(image_path, tags, description):
     """
-    Exports a standalone interactive SVG file packaging the JPEG image (in Base64)
+    Exports a standalone interactive SVG file packaging the image (in Base64)
     with SVG rect overlays and native hover tooltips.
     """
     import base64
     import os
     try:
+        # Determine mime-type from extension
+        ext = os.path.splitext(image_path)[1].lower()
+        mime_type = "image/jpeg"
+        if ext == ".png":
+            mime_type = "image/png"
+        elif ext == ".webp":
+            mime_type = "image/webp"
+
         # 1. Get image dimensions
         with Image.open(image_path) as img:
             width, height = img.size
             
-        # 2. Read JPEG and convert to base64
+        # 2. Read image and convert to base64
         with open(image_path, "rb") as f:
             b64_data = base64.b64encode(f.read()).decode("utf-8")
             
@@ -493,7 +545,7 @@ def write_interactive_svg(image_path, tags, description):
       opacity: 0;
     }}
   </style>
-  <image href="data:image/jpeg;base64,{b64_data}" x="0" y="0" width="{width}" height="{height}" />
+  <image href="data:{mime_type};base64,{b64_data}" x="0" y="0" width="{width}" height="{height}" />
   {rects_svg}
   {desc_banner_svg}
 </svg>
