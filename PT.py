@@ -6,7 +6,13 @@ import customtkinter as ctk
 from PIL import Image, ImageTk
 
 # Import our custom modules
-from metadata import read_photo_metadata, write_photo_metadata, write_interactive_html, write_interactive_svg
+from metadata import (
+    read_photo_metadata, 
+    write_photo_metadata, 
+    write_interactive_html, 
+    write_interactive_svg,
+    draw_annotations_on_image
+)
 from detector import detect_faces
 
 # Configure customtkinter appearance
@@ -99,6 +105,18 @@ class PhotoTaggerApp(ctk.CTk):
         
         self.combo_format = ctk.CTkComboBox(self.header_frame, values=["Original", "JPEG", "PNG", "WebP"], width=100, font=("Segoe UI", 11))
         self.combo_format.pack(side="left", padx=(0, 15), pady=12)
+        
+        # Export Rendered Button
+        self.btn_export_annotated = ctk.CTkButton(
+            self.header_frame, 
+            text="🎨 Export Rendered", 
+            command=self.export_annotated, 
+            width=140, 
+            fg_color="#a855f7", 
+            hover_color="#9333ea", 
+            font=("Segoe UI", 12, "bold")
+        )
+        self.btn_export_annotated.pack(side="left", padx=15, pady=12)
         
         # Right header section: Tag editing helpers
         self.btn_clear_tags = ctk.CTkButton(self.header_frame, text="❌ Clear All", command=self.clear_all_tags, width=100, fg_color="#ef4444", hover_color="#dc2626", font=("Segoe UI", 11, "bold"))
@@ -377,7 +395,7 @@ class PhotoTaggerApp(ctk.CTk):
             self.canvas.create_rectangle(cx, cy, cx + w_px, cy + h_px, outline=outline_color, width=box_width)
             
             # Draw label background and text above box
-            name = face['name'].strip() if face['name'] else f"Person {idx + 1}"
+            name = face['name'].strip() if face['name'] else f"{idx + 1}"
             label_text_id = self.canvas.create_text(cx + 2, cy - 15, text=name, fill="white", font=("Segoe UI", 9, "bold"), anchor="nw")
             lbl_bbox = self.canvas.bbox(label_text_id)
             if lbl_bbox:
@@ -409,7 +427,7 @@ class PhotoTaggerApp(ctk.CTk):
             y = self.mouse_y
             
             face = self.faces[self.hovered_face_idx]
-            name = face['name'].strip() if face['name'] else "Unnamed"
+            name = face['name'].strip() if face['name'] else f"{self.hovered_face_idx + 1}"
             
             tooltip_txt = self.canvas.create_text(x + 15, y + 15, text=name, fill="white", font=("Segoe UI", 10, "bold"), anchor="nw")
             tt_bbox = self.canvas.bbox(tooltip_txt)
@@ -435,9 +453,15 @@ class PhotoTaggerApp(ctk.CTk):
             # Face card frame
             card_frame = ctk.CTkFrame(self.faces_scroll, fg_color="#1f2937" if idx != self.selected_face_idx else "#374151", corner_radius=8)
             card_frame.pack(fill="x", padx=5, pady=4)
-            card_frame.grid_columnconfigure(0, weight=0) # Thumbnail
-            card_frame.grid_columnconfigure(1, weight=1) # Entry field
-            card_frame.grid_columnconfigure(2, weight=0) # Delete button
+            card_frame.grid_columnconfigure(0, weight=0) # Number label
+            card_frame.grid_columnconfigure(1, weight=0) # Thumbnail
+            card_frame.grid_columnconfigure(2, weight=1) # Entry field
+            card_frame.grid_columnconfigure(3, weight=0) # Delete button
+            
+            # Number Label
+            lbl_num = ctk.CTkLabel(card_frame, text=f"{idx + 1}", font=("Segoe UI", 12, "bold"), width=25, text_color="#14b8a6")
+            lbl_num.grid(row=0, column=0, padx=(8, 2), pady=8)
+            lbl_num.bind("<Button-1>", lambda event, i=idx: self.select_face(i))
             
             # Crop face thumbnail from original PIL image
             left = int((face['x'] - face['w'] / 2.0) * orig_w)
@@ -464,14 +488,14 @@ class PhotoTaggerApp(ctk.CTk):
                     self.face_images.append(ctk_thumb)
                     
                     thumbnail_label = ctk.CTkLabel(card_frame, image=ctk_thumb, text="")
-                    thumbnail_label.grid(row=0, column=0, padx=8, pady=8)
+                    thumbnail_label.grid(row=0, column=1, padx=8, pady=8)
                 except Exception as e:
                     print("Error cropping thumbnail:", e)
                     
             if not thumbnail_label:
                 # Fallback empty placeholder
                 thumbnail_label = ctk.CTkLabel(card_frame, text="👤", font=("Segoe UI", 24))
-                thumbnail_label.grid(row=0, column=0, padx=8, pady=8)
+                thumbnail_label.grid(row=0, column=1, padx=8, pady=8)
                 
             # Bind thumbnail click to select face
             thumbnail_label.bind("<Button-1>", lambda event, i=idx: self.select_face(i))
@@ -482,13 +506,13 @@ class PhotoTaggerApp(ctk.CTk):
             var.trace_add("write", lambda *args, i=idx, v=var: self.on_name_changed(i, v))
             
             entry = ctk.CTkEntry(card_frame, textvariable=var, placeholder_text="Enter name...", font=("Segoe UI", 12))
-            entry.grid(row=0, column=1, sticky="ew", padx=(0, 5), pady=8)
+            entry.grid(row=0, column=2, sticky="ew", padx=(0, 5), pady=8)
             entry.bind("<FocusIn>", lambda event, i=idx: self.select_face(i))
             self.face_entries.append(entry)
             
             # Delete button
             btn_delete = ctk.CTkButton(card_frame, text="✕", width=26, height=26, fg_color="#374151", hover_color="#ef4444", text_color="gray", font=("Segoe UI", 10, "bold"), command=lambda i=idx: self.delete_face(i))
-            btn_delete.grid(row=0, column=2, padx=8, pady=8)
+            btn_delete.grid(row=0, column=3, padx=8, pady=8)
             
     # ----------------------------------------------------
     # Coordinate Mapping Helpers for Zoom & Pan
@@ -904,7 +928,13 @@ class PhotoTaggerApp(ctk.CTk):
                 
                 # Redraw canvas to update floating names above boxes
                 # Debounce/avoid redraw loops on single canvas items
-                self.redraw_debounce_id = self.canvas.after_cancel(self.redraw_debounce_id) if hasattr(self, 'redraw_debounce_id') else None
+                # Redraw canvas to update floating names above boxes
+                # Debounce/avoid redraw loops on single canvas items
+                if hasattr(self, 'redraw_debounce_id') and self.redraw_debounce_id is not None:
+                    try:
+                        self.canvas.after_cancel(self.redraw_debounce_id)
+                    except Exception:
+                        pass
                 self.redraw_debounce_id = self.canvas.after(200, self.draw_canvas)
                 
     def on_description_changed(self, event):
@@ -1010,6 +1040,49 @@ class PhotoTaggerApp(ctk.CTk):
         else:
             messagebox.showerror("Error", "Failed to write tags to file metadata.")
             self.set_status("Error saving metadata.")
+            
+    def export_annotated(self):
+        if not self.current_image_path:
+            self.set_status("No image loaded to export.")
+            messagebox.showwarning("No Image", "Please load an image before exporting rendered versions.")
+            return
+            
+        self.set_status("Generating annotated images...")
+        
+        # Make sure description and tags are synchronized (read from textbox if modified)
+        self.description = self.desc_textbox.get("1.0", "end-1c").strip()
+        
+        selected_fmt = self.combo_format.get()
+        original_ext = os.path.splitext(self.current_image_path)[1].lower()
+        
+        target_ext = original_ext
+        if selected_fmt != "Original":
+            fmt_ext_map = {
+                "JPEG": ".jpg",
+                "PNG": ".png",
+                "WebP": ".webp"
+            }
+            target_ext = fmt_ext_map.get(selected_fmt, original_ext)
+            
+        base_path = os.path.splitext(self.current_image_path)[0]
+        numbered_path = f"{base_path}_numbered{target_ext}"
+        tagged_path = f"{base_path}_tagged{target_ext}"
+        
+        # 1. Export Numbered (draw_names = False)
+        success_num = draw_annotations_on_image(self.current_image_path, self.faces, numbered_path, draw_names=False)
+        
+        # 2. Export Tagged (draw_names = True)
+        success_tag = draw_annotations_on_image(self.current_image_path, self.faces, tagged_path, draw_names=True)
+        
+        if success_num and success_tag:
+            self.set_status("Annotated images exported successfully!")
+            messagebox.showinfo("Export Success", 
+                                f"Successfully exported rendered images:\n\n"
+                                f"1. Numbered: {os.path.basename(numbered_path)}\n"
+                                f"2. Tagged: {os.path.basename(tagged_path)}")
+        else:
+            self.set_status("Error exporting annotated images.")
+            messagebox.showerror("Export Error", "Failed to export one or both annotated images.")
             
     def open_file(self):
         file_path = filedialog.askopenfilename(

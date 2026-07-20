@@ -325,14 +325,14 @@ def write_interactive_html(image_path, tags, description):
             
         # 2. Build face tag overlays
         tags_html = ""
-        for t in tags:
+        for idx, t in enumerate(tags):
             # Map normalized center coordinates to top-left percentages
             left = max(0.0, min(100.0, (t['x'] - t['w'] / 2.0) * 100.0))
             top = max(0.0, min(100.0, (t['y'] - t['h'] / 2.0) * 100.0))
             w = max(0.0, min(100.0 - left, t['w'] * 100.0))
             h = max(0.0, min(100.0 - top, t['h'] * 100.0))
             
-            name = t['name'].strip() if t['name'] else "Unnamed"
+            name = t['name'].strip() if t['name'] else str(idx + 1)
             
             tags_html += f"""
         <div class="face-tag" style="left: {left:.2f}%; top: {top:.2f}%; width: {w:.2f}%; height: {h:.2f}%;">
@@ -492,14 +492,14 @@ def write_interactive_svg(image_path, tags, description):
             
         # 3. Build face tag overlays in SVG rects
         rects_svg = ""
-        for t in tags:
+        for idx, t in enumerate(tags):
             # Map normalized center coordinates to absolute pixel coordinates
             left = (t['x'] - t['w'] / 2.0) * width
             top = (t['y'] - t['h'] / 2.0) * height
             w = t['w'] * width
             h = t['h'] * height
             
-            name = t['name'].strip() if t['name'] else "Unnamed"
+            name = t['name'].strip() if t['name'] else str(idx + 1)
             
             rects_svg += f"""
   <rect class="face-box" x="{left:.1f}" y="{top:.1f}" width="{w:.1f}" height="{h:.1f}">
@@ -556,4 +556,114 @@ def write_interactive_svg(image_path, tags, description):
         return True
     except Exception as e:
         print(f"Error exporting interactive SVG: {e}")
+        return False
+
+def draw_annotations_on_image(image_path, tags, output_path, draw_names=False):
+    """
+    Reads the image, draws bounding boxes and labels for each tag, and saves the result.
+    If draw_names is True: shows name if available, else number.
+    If draw_names is False: shows number only.
+    """
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        with Image.open(image_path) as img:
+            # We want to draw on a copy
+            annotated = img.copy()
+            width, height = annotated.size
+            
+            # Use RGBA for transparency support during drawing
+            if annotated.mode not in ('RGB', 'RGBA'):
+                annotated = annotated.convert('RGB')
+                
+            draw = ImageDraw.Draw(annotated, 'RGBA')
+            
+            # Determine line width and font size relative to image dimensions
+            line_width = max(2, int(min(width, height) / 300))
+            font_size = max(14, int(min(width, height) / 50))
+            
+            # Try to load a clean font
+            font = None
+            font_paths = [
+                "arial.ttf",
+                "C:\\Windows\\Fonts\\arial.ttf",
+                "C:\\Windows\\Fonts\\segoeui.ttf",
+                "DejaVuSans.ttf"
+            ]
+            for path in font_paths:
+                try:
+                    font = ImageFont.truetype(path, font_size)
+                    break
+                except IOError:
+                    continue
+            if font is None:
+                font = ImageFont.load_default()
+                
+            for idx, t in enumerate(tags):
+                left = int((t['x'] - t['w'] / 2.0) * width)
+                top = int((t['y'] - t['h'] / 2.0) * height)
+                right = int((t['x'] + t['w'] / 2.0) * width)
+                bottom = int((t['y'] + t['h'] / 2.0) * height)
+                
+                # Clamp coordinates to image boundaries
+                left = max(0, min(width - 1, left))
+                top = max(0, min(height - 1, top))
+                right = max(0, min(width - 1, right))
+                bottom = max(0, min(height - 1, bottom))
+                
+                # Draw face bounding box
+                box_color = (20, 184, 166, 255) # Teal
+                draw.rectangle([left, top, right, bottom], outline=box_color, width=line_width)
+                
+                # Determine label text
+                if draw_names and t.get('name', '').strip():
+                    text = t['name'].strip()
+                else:
+                    text = str(idx + 1)
+                    
+                # Measure text size
+                try:
+                    tb = draw.textbbox((0, 0), text, font=font)
+                    text_w = tb[2] - tb[0]
+                    text_h = tb[3] - tb[1]
+                except AttributeError:
+                    # Fallback for old Pillow versions
+                    text_w, text_h = draw.textsize(text, font=font)
+                    
+                # Position text
+                padding = max(3, font_size // 5)
+                text_y = top - text_h - padding * 2
+                if text_y < 0:
+                    text_y = top + padding
+                    
+                # Label background rectangle
+                bg_rect = [left, text_y, left + text_w + padding * 2, text_y + text_h + padding * 2]
+                draw.rectangle(bg_rect, fill=(17, 24, 39, 220), outline=box_color, width=1)
+                draw.text((left + padding, text_y + padding), text, font=font, fill=(255, 255, 255, 255))
+                
+            # Determine format
+            ext = os.path.splitext(output_path)[1].lower()
+            if ext in ('.jpg', '.jpeg'):
+                fmt = 'JPEG'
+            elif ext == '.png':
+                fmt = 'PNG'
+            elif ext == '.webp':
+                fmt = 'WEBP'
+            else:
+                fmt = 'JPEG'
+                
+            # Convert back to RGB if saving to JPEG and mode is RGBA/transparency
+            if fmt == 'JPEG' and annotated.mode in ('RGBA', 'LA'):
+                annotated = annotated.convert('RGB')
+                
+            # Save parameters
+            save_params = {'format': fmt}
+            if fmt == 'JPEG':
+                save_params['quality'] = 95
+            elif fmt == 'WEBP':
+                save_params['quality'] = 95
+                
+            annotated.save(output_path, **save_params)
+            return True
+    except Exception as e:
+        print(f"Error drawing annotations on image: {e}")
         return False
