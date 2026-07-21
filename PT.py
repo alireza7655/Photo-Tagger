@@ -24,7 +24,7 @@ class PhotoTaggerApp(ctk.CTk):
         super().__init__()
         
         # Window setup
-        self.title("Photo Tagger (Rev.2.0)")
+        self.title("Photo Tagger (Rev.2.2)")
         self.geometry("1300x850")
         self.minsize(1000, 700)
         
@@ -65,6 +65,15 @@ class PhotoTaggerApp(ctk.CTk):
         self.draw_start_y = 0
         self.draw_current_x = 0
         self.draw_current_y = 0
+        
+        # Resizing and styling state (v2.2)
+        self.resizing = False
+        self.resize_handle = None
+        self.resize_start_x = 0
+        self.resize_start_y = 0
+        self.resize_face_init = None
+        self.hovered_resize_handle = None
+        self.drag_rect_id = None
         
         # References for face thumbnails to prevent garbage collection
         self.face_images = []
@@ -171,9 +180,10 @@ class PhotoTaggerApp(ctk.CTk):
         self.sidebar_frame.grid_rowconfigure(0, weight=0) # Instructions Card
         self.sidebar_frame.grid_rowconfigure(1, weight=0) # Description header
         self.sidebar_frame.grid_rowconfigure(2, weight=0) # Description textbox
-        self.sidebar_frame.grid_rowconfigure(3, weight=0) # Faces header
-        self.sidebar_frame.grid_rowconfigure(4, weight=1) # Faces scrollframe
-        self.sidebar_frame.grid_rowconfigure(5, weight=0) # Credit label
+        self.sidebar_frame.grid_rowconfigure(3, weight=0) # Style Settings Frame
+        self.sidebar_frame.grid_rowconfigure(4, weight=0) # Faces header
+        self.sidebar_frame.grid_rowconfigure(5, weight=1) # Faces scrollframe
+        self.sidebar_frame.grid_rowconfigure(6, weight=0) # Credit label
         self.sidebar_frame.grid_columnconfigure(0, weight=1)
         
         # Sidebar: Quick Instructions Card
@@ -194,7 +204,8 @@ class PhotoTaggerApp(ctk.CTk):
             "💡 Pro-Tips:\n"
             "• Zoom: Scroll MouseWheel over image.\n"
             "• Pan: Right-Click and drag zoomed image.\n"
-            "• Convert: Select 'Output Format' before saving."
+            "• Convert: Select 'Output Format' before saving.\n"
+            "• Resize: Click a box & drag corner handles."
         )
         self.instr_desc = ctk.CTkLabel(self.instr_card, text=instr_text, font=("Segoe UI", 10.5), justify="left", text_color="#cbd5e1", anchor="w")
         self.instr_desc.pack(fill="x", padx=10, pady=(0, 8))
@@ -208,17 +219,49 @@ class PhotoTaggerApp(ctk.CTk):
         self.desc_textbox.grid(row=2, column=0, sticky="ew", padx=15, pady=(0, 15))
         self.desc_textbox.bind("<KeyRelease>", self.on_description_changed)
         
+        # Sidebar: Style Settings Card (v2.2)
+        self.style_frame = ctk.CTkFrame(self.sidebar_frame, fg_color="transparent")
+        self.style_frame.grid(row=3, column=0, sticky="ew", padx=15, pady=(0, 15))
+        self.style_frame.grid_columnconfigure(0, weight=1)
+        self.style_frame.grid_columnconfigure(1, weight=1)
+        
+        self.lbl_style_color = ctk.CTkLabel(self.style_frame, text="Tag Color:", font=("Segoe UI", 11, "bold"), anchor="w")
+        self.lbl_style_color.grid(row=0, column=0, sticky="w", padx=(0, 5), pady=(0, 2))
+        
+        self.combo_style_color = ctk.CTkComboBox(
+            self.style_frame, 
+            values=["Teal", "Blue", "Purple", "Green", "Orange/Red"], 
+            width=135, 
+            font=("Segoe UI", 11),
+            command=lambda val: self.draw_canvas()
+        )
+        self.combo_style_color.grid(row=1, column=0, sticky="ew", padx=(0, 5))
+        self.combo_style_color.set("Teal")
+        
+        self.lbl_style_font_size = ctk.CTkLabel(self.style_frame, text="Font Size:", font=("Segoe UI", 11, "bold"), anchor="w")
+        self.lbl_style_font_size.grid(row=0, column=1, sticky="w", padx=(5, 0), pady=(0, 2))
+        
+        self.combo_style_font_size = ctk.CTkComboBox(
+            self.style_frame, 
+            values=["Auto (1.0x)", "Small (0.7x)", "Medium (1.2x)", "Large (1.5x)", "X-Large (2.0x)"], 
+            width=135, 
+            font=("Segoe UI", 11),
+            command=lambda val: self.draw_canvas()
+        )
+        self.combo_style_font_size.grid(row=1, column=1, sticky="ew", padx=(5, 0))
+        self.combo_style_font_size.set("Auto (1.0x)")
+        
         # Sidebar: Faces Header
         self.faces_header = ctk.CTkLabel(self.sidebar_frame, text="People in Photo", font=("Segoe UI", 13, "bold"), anchor="w")
-        self.faces_header.grid(row=3, column=0, sticky="ew", padx=15, pady=(0, 5))
+        self.faces_header.grid(row=4, column=0, sticky="ew", padx=15, pady=(0, 5))
         
         # Sidebar: Scrollable Faces container
         self.faces_scroll = ctk.CTkScrollableFrame(self.sidebar_frame, fg_color="transparent")
-        self.faces_scroll.grid(row=4, column=0, sticky="nsew", padx=5, pady=(0, 5))
+        self.faces_scroll.grid(row=5, column=0, sticky="nsew", padx=5, pady=(0, 5))
         
-        # Sidebar: Developer Credit with Rev.2.0
-        self.credit_label = ctk.CTkLabel(self.sidebar_frame, text="Created by Alireza Mostaghasi (2026) | Rev.2.0", font=("Segoe UI", 10, "italic"), text_color="#6b7280")
-        self.credit_label.grid(row=5, column=0, sticky="ew", padx=15, pady=8)
+        # Sidebar: Developer Credit with Rev.2.2
+        self.credit_label = ctk.CTkLabel(self.sidebar_frame, text="Created by Alireza Mostaghasi (2026) | Rev.2.2", font=("Segoe UI", 10, "italic"), text_color="#6b7280")
+        self.credit_label.grid(row=6, column=0, sticky="ew", padx=15, pady=8)
         
         # ----------------------------------------------------
         # 3. Bottom Control & Navigation
@@ -328,53 +371,70 @@ class PhotoTaggerApp(ctk.CTk):
         if not self.original_pil_image:
             return
             
-        # Clear previous elements
-        self.canvas.delete("all")
-        
         # Get canvas dimensions
         canvas_w = max(50, self.canvas.winfo_width())
         canvas_h = max(50, self.canvas.winfo_height())
         
-        # Original dimensions
-        orig_w, orig_h = self.original_pil_image.size
+        # Clear previous overlay elements (background is cached and tagged bg_image)
+        self.canvas.delete("overlay")
         
-        # Compute scaling factor to fit image in canvas
-        base_scale = min(canvas_w / orig_w, canvas_h / orig_h)
-        scale = base_scale * self.zoom_factor
-        
-        # Visible original image dimensions
-        crop_w = min(orig_w, canvas_w / scale)
-        crop_h = min(orig_h, canvas_h / scale)
-        
-        # Clamp view center so crop box stays inside image bounds
-        half_visible_w_norm = (crop_w / 2.0) / orig_w
-        self.view_center_x = max(half_visible_w_norm, min(1.0 - half_visible_w_norm, self.view_center_x))
-        
-        half_visible_h_norm = (crop_h / 2.0) / orig_h
-        self.view_center_y = max(half_visible_h_norm, min(1.0 - half_visible_h_norm, self.view_center_y))
-        
-        # Crop boundaries in original pixels
-        crop_left = self.view_center_x * orig_w - crop_w / 2.0
-        crop_right = self.view_center_x * orig_w + crop_w / 2.0
-        crop_top = self.view_center_y * orig_h - crop_h / 2.0
-        crop_bottom = self.view_center_y * orig_h + crop_h / 2.0
-        
-        # Display dimensions on canvas
-        display_w = int(orig_w * scale) if orig_w * scale < canvas_w else canvas_w
-        display_h = int(orig_h * scale) if orig_h * scale < canvas_h else canvas_h
-        
-        self.pad_x = (canvas_w - display_w) // 2
-        self.pad_y = (canvas_h - display_h) // 2
-        
-        # Crop and resize display portion
-        cropped = self.original_pil_image.crop((crop_left, crop_top, crop_right, crop_bottom))
-        resized_pil = cropped.resize((display_w, display_h), Image.Resampling.LANCZOS)
-        self.tk_image = ImageTk.PhotoImage(resized_pil)
-        
-        # Draw image centered
-        self.canvas.create_image(canvas_w // 2, canvas_h // 2, image=self.tk_image, anchor="center")
-        
+        # Caching check for background image
+        current_key = (self.current_image_path, canvas_w, canvas_h, self.zoom_factor, self.view_center_x, self.view_center_y)
+        if not hasattr(self, 'last_bg_key') or self.last_bg_key != current_key:
+            self.last_bg_key = current_key
+            self.canvas.delete("bg_image")
+            
+            # Original dimensions
+            orig_w, orig_h = self.original_pil_image.size
+            
+            # Compute scaling factor to fit image in canvas
+            base_scale = min(canvas_w / orig_w, canvas_h / orig_h)
+            scale = base_scale * self.zoom_factor
+            
+            # Visible original image dimensions
+            crop_w = min(orig_w, canvas_w / scale)
+            crop_h = min(orig_h, canvas_h / scale)
+            
+            # Clamp view center so crop box stays inside image bounds
+            half_visible_w_norm = (crop_w / 2.0) / orig_w
+            self.view_center_x = max(half_visible_w_norm, min(1.0 - half_visible_w_norm, self.view_center_x))
+            
+            half_visible_h_norm = (crop_h / 2.0) / orig_h
+            self.view_center_y = max(half_visible_h_norm, min(1.0 - half_visible_h_norm, self.view_center_y))
+            
+            # Crop boundaries in original pixels
+            crop_left = self.view_center_x * orig_w - crop_w / 2.0
+            crop_right = self.view_center_x * orig_w + crop_w / 2.0
+            crop_top = self.view_center_y * orig_h - crop_h / 2.0
+            crop_bottom = self.view_center_y * orig_h + crop_h / 2.0
+            
+            # Display dimensions on canvas
+            display_w = int(orig_w * scale) if orig_w * scale < canvas_w else canvas_w
+            display_h = int(orig_h * scale) if orig_h * scale < canvas_h else canvas_h
+            
+            self.pad_x = (canvas_w - display_w) // 2
+            self.pad_y = (canvas_h - display_h) // 2
+            
+            # Crop and resize display portion
+            cropped = self.original_pil_image.crop((crop_left, crop_top, crop_right, crop_bottom))
+            resized_pil = cropped.resize((display_w, display_h), Image.Resampling.LANCZOS)
+            self.tk_image = ImageTk.PhotoImage(resized_pil)
+            
+            # Draw image centered
+            self.canvas.create_image(canvas_w // 2, canvas_h // 2, image=self.tk_image, anchor="center", tags="bg_image")
+            self.canvas.tag_lower("bg_image")
+            
         # Draw face bounding boxes
+        color_style = self.get_selected_color_style()
+        selected_color = "#a855f7"  # Purple for selection
+        default_color = color_style["hex"]
+        hover_color = "#f59e0b" # Warm Amber/Orange for hover
+        
+        font_style = self.get_selected_font_size_style()
+        font_multiplier = font_style["scale"]
+        base_font_size = max(8, int(9 * font_multiplier))
+        label_font = ("Segoe UI", base_font_size, "bold")
+        
         for idx, face in enumerate(self.faces):
             # Calculate top-left and size on canvas
             cx, cy = self.normalized_to_canvas(face['x'] - face['w']/2.0, face['y'] - face['h']/2.0)
@@ -382,44 +442,55 @@ class PhotoTaggerApp(ctk.CTk):
             
             # Formatting variables based on hover/selection state
             if idx == self.selected_face_idx:
-                outline_color = "#a855f7"  # Vibrant purple
+                outline_color = selected_color
                 box_width = 3
             elif idx == self.hovered_face_idx:
-                outline_color = "#38bdf8"  # Sky blue
+                outline_color = hover_color
                 box_width = 3
             else:
-                outline_color = "#14b8a6"  # Teal
+                outline_color = default_color
                 box_width = 2
                 
             # Draw bounding box
-            self.canvas.create_rectangle(cx, cy, cx + w_px, cy + h_px, outline=outline_color, width=box_width)
+            self.canvas.create_rectangle(cx, cy, cx + w_px, cy + h_px, outline=outline_color, width=box_width, tags="overlay")
+            
+            # If selected, draw resize handles at the 4 corners
+            if idx == self.selected_face_idx:
+                handle_size = 6
+                corners = [
+                    (cx, cy),                  # Top-Left
+                    (cx + w_px, cy),           # Top-Right
+                    (cx, cy + h_px),           # Bottom-Left
+                    (cx + w_px, cy + h_px)     # Bottom-Right
+                ]
+                for hx, hy in corners:
+                    self.canvas.create_rectangle(
+                        hx - handle_size/2, hy - handle_size/2,
+                        hx + handle_size/2, hy + handle_size/2,
+                        fill=selected_color, outline="white", width=1, tags="overlay"
+                    )
             
             # Draw label background and text above box
             name = face['name'].strip() if face['name'] else f"{idx + 1}"
-            label_text_id = self.canvas.create_text(cx + 2, cy - 15, text=name, fill="white", font=("Segoe UI", 9, "bold"), anchor="nw")
+            
+            # Reposition text if near the top boundary
+            label_y = cy - 15 if cy - 15 > 0 else cy + 5
+            label_text_id = self.canvas.create_text(cx + 2, label_y, text=name, fill="white", font=label_font, anchor="nw", tags="overlay")
             lbl_bbox = self.canvas.bbox(label_text_id)
             if lbl_bbox:
                 # Add background for visibility
-                lbl_bg = self.canvas.create_rectangle(lbl_bbox[0]-4, lbl_bbox[1]-1, lbl_bbox[2]+4, lbl_bbox[3]+1, fill="#111827", outline=outline_color, width=1)
+                lbl_bg = self.canvas.create_rectangle(lbl_bbox[0]-4, lbl_bbox[1]-1, lbl_bbox[2]+4, lbl_bbox[3]+1, fill="#111827", outline=outline_color, width=1, tags="overlay")
                 self.canvas.tag_lower(lbl_bg, label_text_id)
-                
-        # Draw manual box drag rectangle if active
-        if self.drawing:
-            self.canvas.create_rectangle(
-                self.draw_start_x, self.draw_start_y,
-                self.draw_current_x, self.draw_current_y,
-                outline="#f97316", width=2, dash=(4, 4)
-            )
             
         # Draw description overlay at the bottom if mouse in background and description is set
         if self.mouse_in_canvas and self.hovered_face_idx is None and self.description:
             overlay_h = 35
             # Draw solid background bar
-            self.canvas.create_rectangle(0, canvas_h - overlay_h, canvas_w, canvas_h, fill="#1f2937", outline="")
+            self.canvas.create_rectangle(0, canvas_h - overlay_h, canvas_w, canvas_h, fill="#1f2937", outline="", tags="overlay")
             # Draw description text
             self.canvas.create_text(canvas_w // 2, canvas_h - (overlay_h // 2), 
                                     text=f"Description: {self.description}", 
-                                    fill="#f3f4f6", font=("Segoe UI", 11, "italic"), anchor="center")
+                                    fill="#f3f4f6", font=("Segoe UI", 11, "italic"), anchor="center", tags="overlay")
             
         # Draw hover face tag tooltip near mouse cursor if hovering over a face
         if self.mouse_in_canvas and self.hovered_face_idx is not None:
@@ -429,10 +500,10 @@ class PhotoTaggerApp(ctk.CTk):
             face = self.faces[self.hovered_face_idx]
             name = face['name'].strip() if face['name'] else f"{self.hovered_face_idx + 1}"
             
-            tooltip_txt = self.canvas.create_text(x + 15, y + 15, text=name, fill="white", font=("Segoe UI", 10, "bold"), anchor="nw")
+            tooltip_txt = self.canvas.create_text(x + 15, y + 15, text=name, fill="white", font=("Segoe UI", 10, "bold"), anchor="nw", tags="overlay")
             tt_bbox = self.canvas.bbox(tooltip_txt)
             if tt_bbox:
-                tt_bg = self.canvas.create_rectangle(tt_bbox[0]-6, tt_bbox[1]-3, tt_bbox[2]+6, tt_bbox[3]+3, fill="#2563eb", outline="#3b82f6", width=1)
+                tt_bg = self.canvas.create_rectangle(tt_bbox[0]-6, tt_bbox[1]-3, tt_bbox[2]+6, tt_bbox[3]+3, fill="#2563eb", outline="#3b82f6", width=1, tags="overlay")
                 self.canvas.tag_lower(tt_bg, tooltip_txt)
 
     def rebuild_sidebar(self):
@@ -614,6 +685,115 @@ class PhotoTaggerApp(ctk.CTk):
         ch = (nh * orig_h / crop_h) * display_h
         return cw, ch
 
+    def get_resize_handle(self, event_x, event_y):
+        if self.selected_face_idx is None or not self.original_pil_image:
+            return None
+            
+        face = self.faces[self.selected_face_idx]
+        cx, cy = self.normalized_to_canvas(face['x'] - face['w']/2.0, face['y'] - face['h']/2.0)
+        w_px, h_px = self.normalized_size_to_canvas(face['w'], face['h'])
+        
+        x1, y1 = cx, cy
+        x2, y2 = cx + w_px, cy + h_px
+        
+        tol = 8  # Hit tolerance in pixels
+        
+        # Check corners first
+        if abs(event_x - x1) <= tol and abs(event_y - y1) <= tol:
+            return "nw"
+        if abs(event_x - x2) <= tol and abs(event_y - y1) <= tol:
+            return "ne"
+        if abs(event_x - x1) <= tol and abs(event_y - y2) <= tol:
+            return "sw"
+        if abs(event_x - x2) <= tol and abs(event_y - y2) <= tol:
+            return "se"
+            
+        # Check edges
+        if x1 - tol <= event_x <= x2 + tol and abs(event_y - y1) <= tol:
+            return "n"
+        if x1 - tol <= event_x <= x2 + tol and abs(event_y - y2) <= tol:
+            return "s"
+        if abs(event_x - x1) <= tol and y1 - tol <= event_y <= y2 + tol:
+            return "w"
+        if abs(event_x - x2) <= tol and y1 - tol <= event_y <= y2 + tol:
+            return "e"
+            
+        return None
+
+    def handle_resize_drag(self, event):
+        face = self.resize_face_init
+        cx, cy = self.normalized_to_canvas(face['x'] - face['w']/2.0, face['y'] - face['h']/2.0)
+        w_px, h_px = self.normalized_size_to_canvas(face['w'], face['h'])
+        
+        x1, y1 = cx, cy
+        x2, y2 = cx + w_px, cy + h_px
+        
+        dx = event.x - self.resize_start_x
+        dy = event.y - self.resize_start_y
+        
+        # Apply delta
+        if "w" in self.resize_handle:
+            x1 += dx
+        if "e" in self.resize_handle:
+            x2 += dx
+        if "n" in self.resize_handle:
+            y1 += dy
+        if "s" in self.resize_handle:
+            y2 += dy
+            
+        # Impose min size (15 pixels)
+        min_size = 15
+        if x2 - x1 < min_size:
+            if "w" in self.resize_handle:
+                x1 = x2 - min_size
+            else:
+                x2 = x1 + min_size
+        if y2 - y1 < min_size:
+            if "n" in self.resize_handle:
+                y1 = y2 - min_size
+            else:
+                y2 = y1 + min_size
+                
+        # Map back to normalized
+        nx1, ny1 = self.canvas_to_normalized(x1, y1)
+        nx2, ny2 = self.canvas_to_normalized(x2, y2)
+        
+        if nx1 is not None and nx2 is not None:
+            new_w = abs(nx2 - nx1)
+            new_h = abs(ny2 - ny1)
+            new_x = (nx1 + nx2) / 2.0
+            new_y = (ny1 + ny2) / 2.0
+            
+            self.faces[self.selected_face_idx]['x'] = new_x
+            self.faces[self.selected_face_idx]['y'] = new_y
+            self.faces[self.selected_face_idx]['w'] = new_w
+            self.faces[self.selected_face_idx]['h'] = new_h
+            self.is_modified = True
+            
+            self.draw_canvas()
+
+    def get_selected_color_style(self):
+        color_map = {
+            "Teal": {"hex": "#14b8a6", "rgb": (20, 184, 166), "hover": "rgba(20, 184, 166, 0.15)"},
+            "Blue": {"hex": "#3b82f6", "rgb": (59, 130, 246), "hover": "rgba(59, 130, 246, 0.15)"},
+            "Purple": {"hex": "#a855f7", "rgb": (168, 85, 247), "hover": "rgba(168, 85, 247, 0.15)"},
+            "Green": {"hex": "#10b981", "rgb": (16, 185, 129), "hover": "rgba(16, 185, 129, 0.15)"},
+            "Orange/Red": {"hex": "#f97316", "rgb": (249, 115, 22), "hover": "rgba(249, 115, 22, 0.15)"}
+        }
+        val = self.combo_style_color.get()
+        return color_map.get(val, color_map["Teal"])
+
+    def get_selected_font_size_style(self):
+        font_size_map = {
+            "Auto (1.0x)": {"scale": 1.0, "px": 13},
+            "Small (0.7x)": {"scale": 0.7, "px": 10},
+            "Medium (1.2x)": {"scale": 1.2, "px": 16},
+            "Large (1.5x)": {"scale": 1.5, "px": 20},
+            "X-Large (2.0x)": {"scale": 2.0, "px": 26}
+        }
+        val = self.combo_style_font_size.get()
+        return font_size_map.get(val, font_size_map["Auto (1.0x)"])
+
     # ----------------------------------------------------
     # Canvas Event Handlers
     # ----------------------------------------------------
@@ -622,6 +802,15 @@ class PhotoTaggerApp(ctk.CTk):
         
     def on_canvas_press(self, event):
         if not self.original_pil_image:
+            return
+            
+        # Check if clicked on a resize handle first
+        if hasattr(self, 'hovered_resize_handle') and self.hovered_resize_handle is not None:
+            self.resizing = True
+            self.resize_handle = self.hovered_resize_handle
+            self.resize_start_x = event.x
+            self.resize_start_y = event.y
+            self.resize_face_init = self.faces[self.selected_face_idx].copy()
             return
             
         # Get coordinates in normalized form
@@ -648,7 +837,14 @@ class PhotoTaggerApp(ctk.CTk):
                 self.draw_canvas()
                 
     def on_canvas_drag(self, event):
-        if not self.drawing or not self.original_pil_image:
+        if not self.original_pil_image:
+            return
+            
+        if hasattr(self, 'resizing') and self.resizing:
+            self.handle_resize_drag(event)
+            return
+            
+        if not self.drawing:
             return
             
         # Constrain dragging coordinates to the canvas image bounds
@@ -663,14 +859,33 @@ class PhotoTaggerApp(ctk.CTk):
         self.draw_current_x = max(self.pad_x, min(self.pad_x + display_w, event.x))
         self.draw_current_y = max(self.pad_y, min(self.pad_y + display_h, event.y))
         
-        self.draw_canvas()
+        # Update or create the manual drag rectangle directly without lag
+        if hasattr(self, 'drag_rect_id') and self.drag_rect_id is not None:
+            self.canvas.coords(self.drag_rect_id, self.draw_start_x, self.draw_start_y, self.draw_current_x, self.draw_current_y)
+        else:
+            self.drag_rect_id = self.canvas.create_rectangle(
+                self.draw_start_x, self.draw_start_y,
+                self.draw_current_x, self.draw_current_y,
+                outline="#f97316", width=2, dash=(4, 4), tags="overlay"
+            )
         
     def on_canvas_release(self, event):
+        if hasattr(self, 'resizing') and self.resizing:
+            self.resizing = False
+            self.rebuild_sidebar()
+            self.draw_canvas()
+            return
+            
         if not self.drawing:
             return
             
         self.drawing = False
         
+        # Delete temporary drag rectangle
+        if hasattr(self, 'drag_rect_id') and self.drag_rect_id is not None:
+            self.canvas.delete(self.drag_rect_id)
+            self.drag_rect_id = None
+            
         # Calculate width and height in pixels
         w_px = abs(self.draw_current_x - self.draw_start_x)
         h_px = abs(self.draw_current_y - self.draw_start_y)
@@ -717,10 +932,38 @@ class PhotoTaggerApp(ctk.CTk):
         if not self.original_pil_image or self.drawing:
             return
             
+        if hasattr(self, 'resizing') and self.resizing:
+            return
+            
         self.mouse_in_canvas = True
         self.mouse_x = event.x
         self.mouse_y = event.y
         
+        # Check resizing hover handles first if a face is selected
+        handle = self.get_resize_handle(event.x, event.y)
+        if handle:
+            cursor_map = {
+                "nw": "size_nw_se",
+                "se": "size_nw_se",
+                "ne": "size_ne_sw",
+                "sw": "size_ne_sw",
+                "n": "size_ns",
+                "s": "size_ns",
+                "w": "size_we",
+                "e": "size_we"
+            }
+            self.canvas.configure(cursor=cursor_map[handle])
+            self.hovered_resize_handle = handle
+            
+            # Reset hovered face selection so tooltips don't draw while preparing to resize
+            if self.hovered_face_idx is not None:
+                self.hovered_face_idx = None
+                self.draw_canvas()
+            return
+        else:
+            self.canvas.configure(cursor="")
+            self.hovered_resize_handle = None
+            
         # Calculate position in normalized coordinates
         nx, ny = self.canvas_to_normalized(event.x, event.y)
         
@@ -859,6 +1102,8 @@ class PhotoTaggerApp(ctk.CTk):
             
     def on_canvas_leave(self, event):
         self.mouse_in_canvas = False
+        self.hovered_resize_handle = None
+        self.canvas.configure(cursor="")
         if self.hovered_face_idx is not None:
             self.hovered_face_idx = None
             self.draw_canvas()
@@ -1010,9 +1255,13 @@ class PhotoTaggerApp(ctk.CTk):
             success = write_photo_metadata(target_path, self.faces, self.description)
             
         if success:
+            # Fetch style settings
+            color_style = self.get_selected_color_style()
+            font_size_style = self.get_selected_font_size_style()
+            
             # Also write the interactive HTML and SVG versions next to it
-            write_interactive_html(target_path, self.faces, self.description)
-            write_interactive_svg(target_path, self.faces, self.description)
+            write_interactive_html(target_path, self.faces, self.description, color_style, font_size_style)
+            write_interactive_svg(target_path, self.faces, self.description, color_style, font_size_style)
             
             old_path = self.current_image_path
             
@@ -1068,11 +1317,15 @@ class PhotoTaggerApp(ctk.CTk):
         numbered_path = f"{base_path}_numbered{target_ext}"
         tagged_path = f"{base_path}_tagged{target_ext}"
         
+        # Fetch style settings
+        color_style = self.get_selected_color_style()
+        font_size_style = self.get_selected_font_size_style()
+        
         # 1. Export Numbered (draw_names = False)
-        success_num = draw_annotations_on_image(self.current_image_path, self.faces, numbered_path, draw_names=False)
+        success_num = draw_annotations_on_image(self.current_image_path, self.faces, numbered_path, draw_names=False, color_style=color_style, font_size_style=font_size_style)
         
         # 2. Export Tagged (draw_names = True)
-        success_tag = draw_annotations_on_image(self.current_image_path, self.faces, tagged_path, draw_names=True)
+        success_tag = draw_annotations_on_image(self.current_image_path, self.faces, tagged_path, draw_names=True, color_style=color_style, font_size_style=font_size_style)
         
         if success_num and success_tag:
             self.set_status("Annotated images exported successfully!")

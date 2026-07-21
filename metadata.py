@@ -303,7 +303,7 @@ def write_photo_metadata(image_path, tags, description, original_path=None):
             pass
         return False
 
-def write_interactive_html(image_path, tags, description):
+def write_interactive_html(image_path, tags, description, color_style=None, font_size_style=None):
     """
     Exports a standalone interactive HTML file packaging the image (in Base64)
     with CSS-styled hover overlays and tooltips.
@@ -311,6 +311,18 @@ def write_interactive_html(image_path, tags, description):
     import base64
     import os
     try:
+        # Get custom styling or defaults
+        color_hex = color_style.get("hex", "#2563eb") if color_style else "#2563eb"
+        hover_hex = color_style.get("hex", "#38bdf8") if color_style else "#38bdf8"
+        bg_hover = color_style.get("hover", "rgba(56, 189, 248, 0.15)") if color_style else "rgba(56, 189, 248, 0.15)"
+        font_size_px = font_size_style.get("px", 13) if font_size_style else 13
+        
+        # Convert hex to rgba for box-shadow to support transparency
+        shadow_rgba = "rgba(56, 189, 248, 0.6)"
+        if color_style:
+            r, g, b = color_style.get("rgb", (59, 130, 246))
+            shadow_rgba = f"rgba({r}, {g}, {b}, 0.6)"
+
         # Determine mime-type from extension
         ext = os.path.splitext(image_path)[1].lower()
         mime_type = "image/jpeg"
@@ -387,20 +399,20 @@ def write_interactive_html(image_path, tags, description):
             box-sizing: border-box;
         }}
         .face-tag:hover {{
-            border-color: #38bdf8;
-            box-shadow: 0 0 12px rgba(56, 189, 248, 0.6);
-            background-color: rgba(56, 189, 248, 0.1);
+            border-color: {hover_hex};
+            box-shadow: 0 0 12px {shadow_rgba};
+            background-color: {bg_hover};
         }}
         .tooltip {{
             position: absolute;
             bottom: calc(100% + 8px);
             left: 50%;
             transform: translateX(-50%) scale(0.95);
-            background-color: #2563eb;
+            background-color: {color_hex};
             color: white;
             padding: 6px 12px;
             border-radius: 6px;
-            font-size: 13px;
+            font-size: {font_size_px}px;
             font-weight: bold;
             white-space: nowrap;
             opacity: 0;
@@ -418,7 +430,7 @@ def write_interactive_html(image_path, tags, description):
             transform: translateX(-50%);
             border-width: 6px;
             border-style: solid;
-            border-color: #2563eb transparent transparent transparent;
+            border-color: {color_hex} transparent transparent transparent;
         }}
         .face-tag:hover .tooltip {{
             opacity: 1;
@@ -466,7 +478,7 @@ def write_interactive_html(image_path, tags, description):
         print(f"Error exporting interactive HTML: {e}")
         return False
 
-def write_interactive_svg(image_path, tags, description):
+def write_interactive_svg(image_path, tags, description, color_style=None, font_size_style=None):
     """
     Exports a standalone interactive SVG file packaging the image (in Base64)
     with SVG rect overlays and native hover tooltips.
@@ -474,6 +486,10 @@ def write_interactive_svg(image_path, tags, description):
     import base64
     import os
     try:
+        # Get custom styling or defaults
+        color_hex = color_style.get("hex", "#38bdf8") if color_style else "#38bdf8"
+        bg_hover = color_style.get("hover", "rgba(56, 189, 248, 0.15)") if color_style else "rgba(56, 189, 248, 0.15)"
+
         # Determine mime-type from extension
         ext = os.path.splitext(image_path)[1].lower()
         mime_type = "image/jpeg"
@@ -529,8 +545,8 @@ def write_interactive_svg(image_path, tags, description):
       pointer-events: all;
     }}
     .face-box:hover {{
-      stroke: #38bdf8;
-      fill: rgba(56, 189, 248, 0.15);
+      stroke: {color_hex};
+      fill: {bg_hover};
     }}
     .desc-banner {{
       transition: opacity 0.3s ease;
@@ -558,7 +574,7 @@ def write_interactive_svg(image_path, tags, description):
         print(f"Error exporting interactive SVG: {e}")
         return False
 
-def draw_annotations_on_image(image_path, tags, output_path, draw_names=False):
+def draw_annotations_on_image(image_path, tags, output_path, draw_names=False, color_style=None, font_size_style=None):
     """
     Reads the image, draws bounding boxes and labels for each tag, and saves the result.
     If draw_names is True: shows name if available, else number.
@@ -579,7 +595,14 @@ def draw_annotations_on_image(image_path, tags, output_path, draw_names=False):
             
             # Determine line width and font size relative to image dimensions
             line_width = max(2, int(min(width, height) / 300))
-            font_size = max(14, int(min(width, height) / 50))
+            
+            # Apply font size multiplier
+            scale_factor = font_size_style.get("scale", 1.0) if font_size_style else 1.0
+            font_size = max(14, int(min(width, height) / 50 * scale_factor))
+            
+            # Apply color style
+            box_color = color_style.get("rgb", (20, 184, 166)) if color_style else (20, 184, 166)
+            box_color_rgba = box_color + (255,)
             
             # Try to load a clean font
             font = None
@@ -611,8 +634,7 @@ def draw_annotations_on_image(image_path, tags, output_path, draw_names=False):
                 bottom = max(0, min(height - 1, bottom))
                 
                 # Draw face bounding box
-                box_color = (20, 184, 166, 255) # Teal
-                draw.rectangle([left, top, right, bottom], outline=box_color, width=line_width)
+                draw.rectangle([left, top, right, bottom], outline=box_color_rgba, width=line_width)
                 
                 # Determine label text
                 if draw_names and t.get('name', '').strip():
@@ -637,7 +659,7 @@ def draw_annotations_on_image(image_path, tags, output_path, draw_names=False):
                     
                 # Label background rectangle
                 bg_rect = [left, text_y, left + text_w + padding * 2, text_y + text_h + padding * 2]
-                draw.rectangle(bg_rect, fill=(17, 24, 39, 220), outline=box_color, width=1)
+                draw.rectangle(bg_rect, fill=(17, 24, 39, 220), outline=box_color_rgba, width=1)
                 draw.text((left + padding, text_y + padding), text, font=font, fill=(255, 255, 255, 255))
                 
             # Determine format

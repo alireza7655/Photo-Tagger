@@ -1,8 +1,8 @@
-# PT / Photo Tagger (Rev.2.1)
+# PT / Photo Tagger (Rev.2.2)
 
 **PT** is a modern desktop application built for Windows 11 (with file executable `PT.exe` and source script `PT.py`, displaying as **`Photo Tagger`** in the UI/UX) to easily tag human faces and edit descriptions inside photos. The app supports dynamic loading, tagging, and saving across **JPEG**, **PNG**, and **WebP** images, and automatically generates interactive sharing versions (HTML and SVG) with hover overlays.
 
-**Created by Alireza Mostaghasi (2026) | Rev.2.1**
+**Created by Alireza Mostaghasi (2026) | Rev.2.2**
 
 ---
 
@@ -18,13 +18,15 @@
    - **Toolbar**: Dedicated Zoom In (`➕`), Zoom Out (`➖`), and `Reset` buttons with a dynamic Zoom Level label in the bottom bar.
 4. **Offline Automatic Face Detection**: Built-in face recognition using OpenCV Haar Cascades (frontal and profile views) to instantly outline faces when an image is loaded.
 5. **Interactive Bounding Boxes**: Hover over a bounding box on the canvas to see the person's name in a tooltip; click to instantly select and rename. Unnamed faces display their simple index number (e.g., `1`, `2`) dynamically.
-6. **Manual Bounding Box Drawing**: Click and drag a box directly on the canvas to manually outline and tag any missed faces. Coordinates map perfectly under any zoom level.
-7. **Interactive HTML Exporter**: Generates a self-contained `.html` file embedding the image as a Base64 string (with the correct dynamic mime-type). Opening the webpage shows the photo and name tags on hover.
-8. **Interactive SVG Exporter**: Exports an `.svg` vector image with hover outline highlights and native tooltips. Bounding boxes remain completely invisible until hovered.
-9. **Dynamic Index Numbering**: Unnamed faces default to their simple index number (e.g. `1`, `2`) instead of generic labels. Removing or adding faces automatically and dynamically recalculates the numbering.
-10. **Numbered Sidebar Crop List**: The sidebar displays the face index number next to each cropped thumbnail, making it easy to identify faces in crowded photos.
-11. **Annotated Image Exporter**: Render and burn bounding boxes directly into the image pixels via the `🎨 Export Rendered` button, exporting a numbered-only copy and a named-and-numbered tagged copy. Bounding boxes and labels scale dynamically with image resolution for premium legibility.
-12. **Batch Navigation**: Quickly step through a folder of images with Next/Previous navigation and unsaved changes warnings.
+6. **Lag-Free Manual Bounding Box Drawing**: Click and drag a box directly on the canvas to manually outline and tag any missed faces. Dotted drawing rectangles render instantly without lag by using direct canvas coordinates.
+7. **Resize Bounding Boxes**: Rescale selected face boxes dynamically by dragging any of the corner resize handles or outline edges. The editor cursor changes automatically. Sidebar thumbnails update only on release to maintain high performance.
+8. **Interactive HTML Exporter**: Generates a self-contained `.html` file embedding the image as a Base64 string. Opening the webpage shows the photo and name tags on hover.
+9. **Interactive SVG Exporter**: Exports an `.svg` vector image with hover outline highlights and native tooltips. Bounding boxes remain completely invisible until hovered.
+10. **Style Settings Control**: Choose custom tag colors (Teal, Blue, Purple, Green, Orange/Red) and font size multipliers (from 0.7x to 2.0x) in the sidebar. Styles apply universally on the GUI canvas, interactive HTML/SVG files, and permanent annotated images.
+11. **Dynamic Index Numbering**: Unnamed faces default to their simple index number (e.g. `1`, `2`) instead of generic labels. Removing or adding faces automatically and dynamically recalculates the numbering.
+12. **Numbered Sidebar Crop List**: The sidebar displays the face index number next to each cropped thumbnail, making it easy to identify faces in crowded photos.
+13. **Annotated Image Exporter**: Render and burn bounding boxes directly into the image pixels via the `🎨 Export Rendered` button, exporting a numbered-only copy and a named-and-numbered tagged copy. Bounding boxes and labels scale dynamically with image resolution for premium legibility.
+14. **Batch Navigation**: Quickly step through a folder of images with Next/Previous navigation and unsaved changes warnings.
 
 ---
 
