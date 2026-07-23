@@ -20,6 +20,42 @@ NAMESPACES = {
 for prefix, uri in NAMESPACES.items():
     ET.register_namespace(prefix, uri)
 
+def sort_faces_spatial(faces):
+    """
+    Sorts face tags into natural visual reading order:
+    Groups faces into horizontal rows/layers from Top to Bottom,
+    and sorts Left to Right within each row.
+    """
+    if not faces:
+        return []
+        
+    faces_copy = list(faces)
+    avg_h = sum(f.get('h', 0.1) for f in faces_copy) / len(faces_copy)
+    row_threshold = max(0.035, avg_h * 0.60)
+    
+    faces_copy.sort(key=lambda f: f['y'])
+    
+    rows = []
+    for f in faces_copy:
+        placed = False
+        for row in rows:
+            avg_y = sum(item['y'] for item in row) / len(row)
+            if abs(f['y'] - avg_y) <= row_threshold:
+                row.append(f)
+                placed = True
+                break
+        if not placed:
+            rows.append([f])
+            
+    rows.sort(key=lambda r: sum(item['y'] for item in r) / len(r))
+    
+    sorted_result = []
+    for row in rows:
+        row.sort(key=lambda item: item['x'])
+        sorted_result.extend(row)
+        
+    return sorted_result
+
 def read_photo_metadata(image_path):
     """
     Reads face regions and description from EXIF and XMP metadata.
@@ -43,6 +79,8 @@ def read_photo_metadata(image_path):
             # 2. Read XMP bytes
             xmp_bytes = img.info.get("xmp")
             if not xmp_bytes:
+                if metadata['tags']:
+                    metadata['tags'] = sort_faces_spatial(metadata['tags'])
                 return metadata
             
             try:
@@ -55,19 +93,19 @@ def read_photo_metadata(image_path):
                     root = ET.fromstring(xmp_str)
             except Exception as e:
                 print(f"Warning: Failed to parse XMP XML in {image_path}: {e}")
+                if metadata['tags']:
+                    metadata['tags'] = sort_faces_spatial(metadata['tags'])
                 return metadata
 
             # 3. Read general description from XMP dc:description if not found in EXIF
             if not metadata['description']:
                 dc_desc = root.find('.//{http://purl.org/dc/elements/1.1/}description')
                 if dc_desc is not None:
-                    # Look for rdf:Alt and rdf:li
                     li = dc_desc.find('.//{http://www.w3.org/1999/02/22-rdf-syntax-ns#}li')
                     if li is not None and li.text:
                         metadata['description'] = li.text.strip()
 
             # 4. Read face regions
-            # Try MWG regions first
             mwg_regions = root.find('.//{http://www.metadataworkinggroup.org/schemas/regions/}Regions')
             if mwg_regions is not None:
                 region_list = mwg_regions.find('.//{http://www.metadataworkinggroup.org/schemas/regions/}RegionList')
@@ -84,6 +122,7 @@ def read_photo_metadata(image_path):
                             h = float(area_elem.get('{http://ns.adobe.com/xmp/sType/Area#}h', 0.0))
                             metadata['tags'].append({'name': name, 'x': x, 'y': y, 'w': w, 'h': h})
                     if metadata['tags']:
+                        metadata['tags'] = sort_faces_spatial(metadata['tags'])
                         return metadata
 
             # If no MWG regions, try Microsoft RegionInfo
@@ -92,7 +131,6 @@ def read_photo_metadata(image_path):
                 regions = mp_region_info.find('.//{http://ns.microsoft.com/photo/1.2/t/RegionInfo#}Regions')
                 if regions is not None:
                     for li in regions.findall('.//{http://www.w3.org/1999/02/22-rdf-syntax-ns#}li'):
-                        # Check for nested Description tag (standard Microsoft format)
                         desc_el = li.find('{http://www.w3.org/1999/02/22-rdf-syntax-ns#}Description')
                         source = desc_el if desc_el is not None else li
                         
@@ -100,7 +138,6 @@ def read_photo_metadata(image_path):
                         rect_str = source.get('{http://ns.microsoft.com/photo/1.2/t/Region#}Rectangle') or ""
                         if rect_str:
                             try:
-                                # left, top, width, height
                                 left, top, w, h = map(float, rect_str.split(','))
                                 x = left + w / 2.0
                                 y = top + h / 2.0
@@ -109,6 +146,9 @@ def read_photo_metadata(image_path):
                                 print(f"Error parsing Microsoft region rectangle: {rect_str}: {e}")
     except Exception as e:
         print(f"Error reading metadata from {image_path}: {e}")
+        
+    if metadata['tags']:
+        metadata['tags'] = sort_faces_spatial(metadata['tags'])
         
     return metadata
 
@@ -574,44 +614,45 @@ def write_interactive_svg(image_path, tags, description, color_style=None, font_
         print(f"Error exporting interactive SVG: {e}")
         return False
 
-def draw_annotations_on_image(image_path, tags, output_path, draw_names=False, color_style=None, font_size_style=None):
+def draw_annotations_on_image(image_path, tags, output_path, draw_names=False, color_style=None, font_size_style=None, description=None, for_editor=False):
     """
     Reads the image, draws bounding boxes and labels for each tag, and saves the result.
-    If draw_names is True: shows name if available, else number.
-    If draw_names is False: shows number only.
+    - If draw_names is False (Output 2-a: Numbered): draws face bounding boxes and numbers as-is.
+    - If draw_names is True (Output 2-b: Tagged v2.3): 
+      i) No rectangles around faces.
+      ii) Non-overlapping number badges placed on person's body (or top corner of face if body not visible).
+      iii) General Photo Description and Tagged names listed in a free space footer below the photo.
     """
     try:
+        import math
         from PIL import Image, ImageDraw, ImageFont
+        tags = sort_faces_spatial(tags)
         with Image.open(image_path) as img:
-            # We want to draw on a copy
             annotated = img.copy()
             width, height = annotated.size
             
-            # Use RGBA for transparency support during drawing
             if annotated.mode not in ('RGB', 'RGBA'):
                 annotated = annotated.convert('RGB')
                 
             draw = ImageDraw.Draw(annotated, 'RGBA')
             
-            # Determine line width and font size relative to image dimensions
             line_width = max(2, int(min(width, height) / 300))
-            
-            # Apply font size multiplier
             scale_factor = font_size_style.get("scale", 1.0) if font_size_style else 1.0
             font_size = max(14, int(min(width, height) / 50 * scale_factor))
             
-            # Apply color style
             box_color = color_style.get("rgb", (20, 184, 166)) if color_style else (20, 184, 166)
             box_color_rgba = box_color + (255,)
             
-            # Try to load a clean font
-            font = None
             font_paths = [
+                "arialbd.ttf",
                 "arial.ttf",
+                "C:\\Windows\\Fonts\\arialbd.ttf",
                 "C:\\Windows\\Fonts\\arial.ttf",
+                "C:\\Windows\\Fonts\\segoeuib.ttf",
                 "C:\\Windows\\Fonts\\segoeui.ttf",
                 "DejaVuSans.ttf"
             ]
+            font = None
             for path in font_paths:
                 try:
                     font = ImageFont.truetype(path, font_size)
@@ -621,48 +662,348 @@ def draw_annotations_on_image(image_path, tags, output_path, draw_names=False, c
             if font is None:
                 font = ImageFont.load_default()
                 
-            for idx, t in enumerate(tags):
-                left = int((t['x'] - t['w'] / 2.0) * width)
-                top = int((t['y'] - t['h'] / 2.0) * height)
-                right = int((t['x'] + t['w'] / 2.0) * width)
-                bottom = int((t['y'] + t['h'] / 2.0) * height)
-                
-                # Clamp coordinates to image boundaries
-                left = max(0, min(width - 1, left))
-                top = max(0, min(height - 1, top))
-                right = max(0, min(width - 1, right))
-                bottom = max(0, min(height - 1, bottom))
-                
-                # Draw face bounding box
-                draw.rectangle([left, top, right, bottom], outline=box_color_rgba, width=line_width)
-                
-                # Determine label text
-                if draw_names and t.get('name', '').strip():
-                    text = t['name'].strip()
-                else:
+            if not draw_names:
+                # ----------------------------------------------------
+                # Output 2-a: Numbered (Kept exactly as-is)
+                # ----------------------------------------------------
+                for idx, t in enumerate(tags):
+                    left = int((t['x'] - t['w'] / 2.0) * width)
+                    top = int((t['y'] - t['h'] / 2.0) * height)
+                    right = int((t['x'] + t['w'] / 2.0) * width)
+                    bottom = int((t['y'] + t['h'] / 2.0) * height)
+                    
+                    left = max(0, min(width - 1, left))
+                    top = max(0, min(height - 1, top))
+                    right = max(0, min(width - 1, right))
+                    bottom = max(0, min(height - 1, bottom))
+                    
+                    draw.rectangle([left, top, right, bottom], outline=box_color_rgba, width=line_width)
                     text = str(idx + 1)
                     
-                # Measure text size
-                try:
-                    tb = draw.textbbox((0, 0), text, font=font)
-                    text_w = tb[2] - tb[0]
-                    text_h = tb[3] - tb[1]
-                except AttributeError:
-                    # Fallback for old Pillow versions
-                    text_w, text_h = draw.textsize(text, font=font)
+                    try:
+                        tb = draw.textbbox((0, 0), text, font=font)
+                        text_w = tb[2] - tb[0]
+                        text_h = tb[3] - tb[1]
+                    except AttributeError:
+                        text_w, text_h = draw.textsize(text, font=font)
+                        
+                    padding = max(3, font_size // 5)
+                    text_y = top - text_h - padding * 2
+                    if text_y < 0:
+                        text_y = top + padding
+                        
+                    bg_rect = [left, text_y, left + text_w + padding * 2, text_y + text_h + padding * 2]
+                    draw.rectangle(bg_rect, fill=(17, 24, 39, 220), outline=box_color_rgba, width=1)
+                    draw.text((left + padding, text_y + padding), text, font=font, fill=(255, 255, 255, 255))
                     
-                # Position text
-                padding = max(3, font_size // 5)
-                text_y = top - text_h - padding * 2
-                if text_y < 0:
-                    text_y = top + padding
-                    
-                # Label background rectangle
-                bg_rect = [left, text_y, left + text_w + padding * 2, text_y + text_h + padding * 2]
-                draw.rectangle(bg_rect, fill=(17, 24, 39, 220), outline=box_color_rgba, width=1)
-                draw.text((left + padding, text_y + padding), text, font=font, fill=(255, 255, 255, 255))
+                final_output_img = annotated
+            else:
+                # ----------------------------------------------------
+                # Output 2-b: Tagged (Photo Tagger v2.3)
+                # i) No face rectangles
+                # ii) Number badges placed strictly OUTSIDE all face boxes
+                #     - Zero face masking (NO badge inside any face bounding box)
+                #     - Zero cross-person body landing
+                #     - Dynamic resizing (smaller visible badge) when space is constrained
+                # iii) General Photo Description and Tagged names listed in free space
+                # ----------------------------------------------------
+                # ----------------------------------------------------
+                # Output 2-b: Tagged (Photo Tagger v2.3)
+                # i) No face rectangles
+                # ii) Number badges placed strictly OUTSIDE all face boxes
+                #     - Zero face masking (NO badge inside any face bounding box)
+                #     - Zero cross-person body landing
+                #     - Dynamic resizing & pill shape for 3-digit numbers to fit inside badge
+                # iii) General Photo Description and Tagged names listed in free space
+                # ----------------------------------------------------
+                # Use tags in the exact order passed from app/UI to guarantee 1:1 number matching!
+                placed_badges = []  # List of (bx, by, badge_w, badge_h)
                 
-            # Determine format
+                all_face_boxes = []
+                for t in tags:
+                    fl = int((t['x'] - t['w'] / 2.0) * width)
+                    ft = int((t['y'] - t['h'] / 2.0) * height)
+                    fr = int((t['x'] + t['w'] / 2.0) * width)
+                    fb = int((t['y'] + t['h'] / 2.0) * height)
+                    fl = max(0, min(width - 1, fl))
+                    ft = max(0, min(height - 1, ft))
+                    fr = max(0, min(width - 1, fr))
+                    fb = max(0, min(height - 1, fb))
+                    fw = max(1, fr - fl)
+                    fh = max(1, fb - ft)
+                    cx = int(fl + fw / 2.0)
+                    cy = int(ft + fh / 2.0)
+                    all_face_boxes.append({
+                        'fl': fl, 'ft': ft, 'fr': fr, 'fb': fb,
+                        'cx': cx, 'cy': cy, 'fw': fw, 'fh': fh
+                    })
+
+                def badge_rect_intersects_rect(bx, by, bw, bh, x1, y1, x2, y2, margin=1):
+                    # Check overlap between badge rect [bx-bw, by-bh, bx+bw, by+bh] and box [x1, y1, x2, y2]
+                    bl = bx - bw - margin
+                    br = bx + bw + margin
+                    bt = by - bh - margin
+                    bb = by + bh + margin
+                    return not (br < x1 or bl > x2 or bb < y1 or bt > y2)
+
+                def is_valid_badge_placement(bx, by, bw, bh, person_idx):
+                    # 1. Image boundary check
+                    if bx - bw < 2 or bx + bw > width - 2 or by - bh < 2 or by + bh > height - 2:
+                        return False
+
+                    # 2. MUST NOT MASK ANY FACE BOX (person_idx or any other person k!)
+                    for data in all_face_boxes:
+                        if badge_rect_intersects_rect(bx, by, bw, bh, data['fl'], data['ft'], data['fr'], data['fb'], margin=1):
+                            return False
+
+                    # 3. MUST NOT land on ANOTHER person k's body box (k != person_idx)
+                    for k, data in enumerate(all_face_boxes):
+                        if k != person_idx:
+                            k_body_l = data['fl'] - int(data['fw'] * 0.1)
+                            k_body_r = data['fr'] + int(data['fw'] * 0.1)
+                            k_body_t = data['fb'] + 1
+                            k_body_b = min(height, data['fb'] + int(data['fh'] * 1.2))
+                            if badge_rect_intersects_rect(bx, by, bw, bh, k_body_l, k_body_t, k_body_r, k_body_b, margin=1):
+                                return False
+
+                    # 4. MUST NOT overlap any previously placed badge
+                    min_gap = 2
+                    for prev_x, prev_y, prev_bw, prev_bh in placed_badges:
+                        dx = abs(bx - prev_x)
+                        dy = abs(by - prev_y)
+                        if dx < (bw + prev_bw + min_gap) and dy < (bh + prev_bh + min_gap):
+                            return False
+
+                    return True
+
+                # Uniform badge radius across ALL tags for identical size & shape
+                scale_factor = font_size_style.get("scale", 1.0) if font_size_style else 1.0
+                uniform_badge_r = max(14, int(font_size * 0.95 * scale_factor))
+
+                for idx, t in enumerate(tags):
+                    box_i = all_face_boxes[idx]
+                    fl_i, ft_i, fr_i, fb_i = box_i['fl'], box_i['ft'], box_i['fr'], box_i['fb']
+                    fw_i, fh_i, cx_i, cy_i = box_i['fw'], box_i['fh'], box_i['cx'], box_i['cy']
+                    
+                    num_str = str(idx + 1)
+                    badge_r = uniform_badge_r
+                    bw = badge_r
+                    bh = badge_r
+                    
+                    chosen_pos = None
+
+                    # 1. Check if user set custom manual position for this badge
+                    if 'bx' in t and 'by' in t and t['bx'] is not None and t['by'] is not None:
+                        bx_custom = int(t['bx'] * width)
+                        by_custom = int(t['by'] * height)
+                        chosen_pos = (bx_custom, by_custom)
+                    else:
+                        # 2. Automatic smart placement search with uniform badge_r
+                        candidates = [
+                            (cx_i, fb_i + badge_r + 2),                 # Body below chin
+                            (cx_i, ft_i - badge_r - 2),                 # Above head / hair top
+                            (cx_i - int(fw_i * 0.35), ft_i - badge_r - 2), # Above head left
+                            (cx_i + int(fw_i * 0.35), ft_i - badge_r - 2), # Above head right
+                            (cx_i - int(fw_i * 0.35), fb_i + badge_r + 2), # Body below chin left
+                            (cx_i + int(fw_i * 0.35), fb_i + badge_r + 2), # Body below chin right
+                            (fl_i - badge_r - 2, cy_i),                 # Left of face box
+                            (fr_i + badge_r + 2, cy_i),                 # Right of face box
+                        ]
+                        
+                        for (cand_x, cand_y) in candidates:
+                            if is_valid_badge_placement(cand_x, cand_y, bw, bh, idx):
+                                chosen_pos = (cand_x, cand_y)
+                                break
+
+                        if chosen_pos is None:
+                            # Outward spiral search
+                            base_x, base_y = cx_i, ft_i - badge_r - 2
+                            found_spiral = False
+                            for dist in range(3, 150, 3):
+                                for angle_deg in range(0, 360, 30):
+                                    rad = math.radians(angle_deg)
+                                    sx = int(base_x + dist * math.cos(rad))
+                                    sy = int(base_y + dist * math.sin(rad))
+                                    if is_valid_badge_placement(sx, sy, bw, bh, idx):
+                                        chosen_pos = (sx, sy)
+                                        found_spiral = True
+                                        break
+                                if found_spiral:
+                                    break
+
+                        if chosen_pos is None:
+                            bx = max(badge_r + 2, min(width - badge_r - 2, cx_i))
+                            by = max(badge_r + 2, min(height - badge_r - 2, ft_i - badge_r - 2))
+                            chosen_pos = (bx, by)
+
+                    bx, by = chosen_pos
+                    placed_badges.append((bx, by, bw, bh))
+
+                    # Store normalized badge position in tag dict so editor and exports stay in sync
+                    t['bx'] = bx / float(width)
+                    t['by'] = by / float(height)
+
+                    if not for_editor:
+                        # Draw uniform circular badge on image
+                        draw.ellipse([bx - badge_r, by - badge_r, bx + badge_r, by + badge_r], 
+                                     fill=box_color_rgba, outline=(255, 255, 255, 255), width=max(1, line_width // 2))
+
+                        # Draw text centered inside uniform circle with 100% uniform font size for ALL numbers
+                        badge_font_size = max(9, int(badge_r * 0.72))
+                        badge_font = None
+                        for path in font_paths:
+                            try:
+                                badge_font = ImageFont.truetype(path, badge_font_size)
+                                break
+                            except IOError:
+                                continue
+                        if badge_font is None:
+                            badge_font = font
+
+                        try:
+                            tb = draw.textbbox((0, 0), num_str, font=badge_font)
+                            tw = tb[2] - tb[0]
+                            th = tb[3] - tb[1]
+                            tx_off, ty_off = tb[0], tb[1]
+                        except AttributeError:
+                            tw, th = draw.textsize(num_str, font=badge_font)
+                            tx_off, ty_off = 0, 0
+
+                        tx = bx - (tw / 2.0) - tx_off
+                        ty = by - (th / 2.0) - ty_off
+                        draw.text((tx, ty), num_str, font=badge_font, fill=(255, 255, 255, 255))
+                    
+                # Free space footer under photo
+                if description is None:
+                    try:
+                        from PIL.ExifTags import TAGS
+                        with Image.open(image_path) as img:
+                            exif_data = img._getexif()
+                            if exif_data:
+                                for tag, value in exif_data.items():
+                                    decoded = TAGS.get(tag, tag)
+                                    if decoded == "ImageDescription":
+                                        description = value
+                                        break
+                    except Exception:
+                        description = ''
+                        
+                desc_text = str(description).strip() if description else ""
+
+                legend_font_size = max(13, int(min(width, height) / 48 * scale_factor))
+                legend_font = None
+                for path in font_paths:
+                    try:
+                        legend_font = ImageFont.truetype(path, legend_font_size)
+                        break
+                    except IOError:
+                        continue
+                if legend_font is None:
+                    legend_font = ImageFont.load_default()
+                    
+                line_h = max(28, int(legend_font_size * 2.0))
+                header_h = max(30, int(legend_font_size * 2.2))
+                pad_top = max(16, int(legend_font_size * 1.0))
+                pad_bottom = max(16, int(legend_font_size * 1.2))
+                pad_left = max(20, int(width * 0.03))
+                max_text_w = width - (pad_left * 2)
+                
+                # Wrap General Photo Description
+                desc_lines = []
+                if desc_text:
+                    for paragraph in desc_text.split('\n'):
+                        words = paragraph.split(' ')
+                        curr = []
+                        for w in words:
+                            test_str = ' '.join(curr + [w])
+                            try:
+                                tb = draw.textbbox((0, 0), test_str, font=legend_font)
+                                tw = tb[2] - tb[0]
+                            except AttributeError:
+                                tw, _ = draw.textsize(test_str, font=legend_font)
+                            if tw <= max_text_w or not curr:
+                                curr.append(w)
+                            else:
+                                desc_lines.append(' '.join(curr))
+                                curr = [w]
+                        if curr:
+                            desc_lines.append(' '.join(curr))
+                            
+                desc_block_h = (header_h + (len(desc_lines) * line_h) + int(line_h * 0.5)) if desc_lines else 0
+
+                # Tagged Persons Grid
+                num_tags = len(tags)
+                num_cols = max(1, min(4, width // 220))
+                num_rows = math.ceil(num_tags / num_cols) if num_tags > 0 else 0
+                tags_block_h = (header_h + (num_rows * line_h)) if num_tags > 0 else 0
+                
+                total_content_h = desc_block_h + tags_block_h
+                footer_h = (pad_top + total_content_h + pad_bottom) if total_content_h > 0 else 0
+                    
+                if footer_h > 0:
+                    total_height = height + footer_h
+                    final_output_img = Image.new('RGBA', (width, total_height), (15, 23, 42, 255))
+                    final_output_img.paste(annotated, (0, 0))
+                    
+                    fdraw = ImageDraw.Draw(final_output_img)
+                    fdraw.line([(0, height), (width, height)], fill=box_color_rgba, width=max(2, line_width))
+                    
+                    current_y = height + pad_top
+                    
+                    # Render Description Block
+                    if desc_lines:
+                        fdraw.text((pad_left, current_y), "PHOTO DESCRIPTION", font=legend_font, fill=box_color_rgba)
+                        current_y += header_h
+                        for line in desc_lines:
+                            fdraw.text((pad_left, current_y), line, font=legend_font, fill=(226, 232, 240, 255))
+                            current_y += line_h
+                        current_y += int(line_h * 0.5)
+
+                    # Render Tagged Persons Block
+                    if num_tags > 0:
+                        fdraw.text((pad_left, current_y), "TAGGED PERSONS", font=legend_font, fill=box_color_rgba)
+                        current_y += header_h
+                        
+                        avail_w = width - (pad_left * 2)
+                        col_w = avail_w // num_cols
+                        pill_r = max(10, int(legend_font_size * 0.65))
+                        
+                        for idx, t in enumerate(tags):
+                            row = idx // num_cols
+                            col = idx % num_cols
+                            
+                            num_str = str(idx + 1)
+                            raw_name = t.get('name', '').strip()
+                            name_str = raw_name if raw_name else "(Unnamed)"
+                            
+                            x_start = pad_left + col * col_w
+                            y_row = current_y + row * line_h
+                            
+                            pcx = x_start + pill_r
+                            pcy = y_row + line_h // 2
+                            fdraw.ellipse([pcx - pill_r, pcy - pill_r, pcx + pill_r, pcy + pill_r], 
+                                          fill=box_color_rgba, outline=(255, 255, 255, 255), width=1)
+                                          
+                            try:
+                                tb = fdraw.textbbox((0, 0), num_str, font=legend_font)
+                                tw = tb[2] - tb[0]
+                                th = tb[3] - tb[1]
+                                tx_off, ty_off = tb[0], tb[1]
+                            except AttributeError:
+                                tw, th = fdraw.textsize(num_str, font=legend_font)
+                                tx_off, ty_off = 0, 0
+                                
+                            ptx = pcx - (tw / 2.0) - tx_off
+                            pty = pcy - (th / 2.0) - ty_off
+                            fdraw.text((ptx, pty), num_str, font=legend_font, fill=(255, 255, 255, 255))
+                            
+                            name_x = pcx + pill_r + 10
+                            name_y = y_row + (line_h - legend_font_size) // 2
+                            name_color = (241, 245, 249, 255) if raw_name else (148, 163, 184, 255)
+                            fdraw.text((name_x, name_y), name_str, font=legend_font, fill=name_color)
+                else:
+                    final_output_img = annotated
+                    
             ext = os.path.splitext(output_path)[1].lower()
             if ext in ('.jpg', '.jpeg'):
                 fmt = 'JPEG'
@@ -673,18 +1014,16 @@ def draw_annotations_on_image(image_path, tags, output_path, draw_names=False, c
             else:
                 fmt = 'JPEG'
                 
-            # Convert back to RGB if saving to JPEG and mode is RGBA/transparency
-            if fmt == 'JPEG' and annotated.mode in ('RGBA', 'LA'):
-                annotated = annotated.convert('RGB')
+            if fmt == 'JPEG' and final_output_img.mode in ('RGBA', 'LA'):
+                final_output_img = final_output_img.convert('RGB')
                 
-            # Save parameters
             save_params = {'format': fmt}
             if fmt == 'JPEG':
                 save_params['quality'] = 95
             elif fmt == 'WEBP':
                 save_params['quality'] = 95
                 
-            annotated.save(output_path, **save_params)
+            final_output_img.save(output_path, **save_params)
             return True
     except Exception as e:
         print(f"Error drawing annotations on image: {e}")

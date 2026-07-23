@@ -111,7 +111,9 @@ def detect_faces(image_path):
                 'h': nh
             })
             
-        return normalized_faces
+        # Sort faces spatially in row order (Top-to-Bottom, Left-to-Right)
+        from metadata import sort_faces_spatial
+        return sort_faces_spatial(normalized_faces)
     except Exception as e:
         print(f"Error during face detection on {image_path}: {e}")
         return []

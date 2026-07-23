@@ -11,7 +11,8 @@ from metadata import (
     write_photo_metadata, 
     write_interactive_html, 
     write_interactive_svg,
-    draw_annotations_on_image
+    draw_annotations_on_image,
+    sort_faces_spatial
 )
 from detector import detect_faces
 
@@ -24,7 +25,7 @@ class PhotoTaggerApp(ctk.CTk):
         super().__init__()
         
         # Window setup
-        self.title("Photo Tagger (Rev.2.2)")
+        self.title("Photo Tagger (Rev.2.3)")
         self.geometry("1300x850")
         self.minsize(1000, 700)
         
@@ -125,7 +126,19 @@ class PhotoTaggerApp(ctk.CTk):
             hover_color="#9333ea", 
             font=("Segoe UI", 12, "bold")
         )
-        self.btn_export_annotated.pack(side="left", padx=15, pady=12)
+        self.btn_export_annotated.pack(side="left", padx=(15, 5), pady=12)
+        
+        # Fine-Tune Output 2b Button
+        self.btn_finetune_2b = ctk.CTkButton(
+            self.header_frame, 
+            text="✏️ Fine-Tune", 
+            command=self.open_editor_2b, 
+            width=130, 
+            fg_color="#0284c7", 
+            hover_color="#0369a1", 
+            font=("Segoe UI", 12, "bold")
+        )
+        self.btn_finetune_2b.pack(side="left", padx=5, pady=12)
         
         # Right header section: Tag editing helpers
         self.btn_clear_tags = ctk.CTkButton(self.header_frame, text="❌ Clear All", command=self.clear_all_tags, width=100, fg_color="#ef4444", hover_color="#dc2626", font=("Segoe UI", 11, "bold"))
@@ -194,17 +207,18 @@ class PhotoTaggerApp(ctk.CTk):
         self.instr_title.pack(fill="x", padx=10, pady=(8, 2))
         
         instr_text = (
-            "1. Open a Photo or Folder.\n"
-            "2. Let the software auto-detect faces.\n"
+            "1. Open a photo or an entire folder.\n"
+            "2. Faces are automatically detected.\n"
             "3. Remove false detections by clicking ✕.\n"
             "4. Type names next to face crops on the right.\n"
             "5. Click & drag on image to manually add boxes.\n"
             "6. Enter a general photo description if desired.\n"
-            "7. Click 'Save Tags' to save metadata & export files.\n\n"
+            "7. Click 'Save Tags' to save metadata & export files.\n"
+            "8. Click 'Fine-Tune' to adjust Output 2-b badges.\n\n"
             "💡 Pro-Tips:\n"
             "• Zoom: Scroll MouseWheel over image.\n"
             "• Pan: Right-Click and drag zoomed image.\n"
-            "• Convert: Select 'Output Format' before saving.\n"
+            "• Fine-Tune: Zoom, pan & drag badge circles.\n"
             "• Resize: Click a box & drag corner handles."
         )
         self.instr_desc = ctk.CTkLabel(self.instr_card, text=instr_text, font=("Segoe UI", 10.5), justify="left", text_color="#cbd5e1", anchor="w")
@@ -243,7 +257,7 @@ class PhotoTaggerApp(ctk.CTk):
         
         self.combo_style_font_size = ctk.CTkComboBox(
             self.style_frame, 
-            values=["Auto (1.0x)", "Small (0.7x)", "Medium (1.2x)", "Large (1.5x)", "X-Large (2.0x)"], 
+            values=["Micro (0.5x)", "Small (0.7x)", "Auto (1.0x)", "Medium (1.2x)", "Large (1.5x)", "X-Large (2.0x)"], 
             width=135, 
             font=("Segoe UI", 11),
             command=lambda val: self.draw_canvas()
@@ -259,8 +273,8 @@ class PhotoTaggerApp(ctk.CTk):
         self.faces_scroll = ctk.CTkScrollableFrame(self.sidebar_frame, fg_color="transparent")
         self.faces_scroll.grid(row=5, column=0, sticky="nsew", padx=5, pady=(0, 5))
         
-        # Sidebar: Developer Credit with Rev.2.2
-        self.credit_label = ctk.CTkLabel(self.sidebar_frame, text="Created by Alireza Mostaghasi (2026) | Rev.2.2", font=("Segoe UI", 10, "italic"), text_color="#6b7280")
+        # Sidebar: Developer Credit with Rev.2.3
+        self.credit_label = ctk.CTkLabel(self.sidebar_frame, text="Created by Alireza Mostaghasi (2026) | Rev.2.3", font=("Segoe UI", 10, "italic"), text_color="#6b7280")
         self.credit_label.grid(row=6, column=0, sticky="ew", padx=15, pady=8)
         
         # ----------------------------------------------------
@@ -351,6 +365,7 @@ class PhotoTaggerApp(ctk.CTk):
             else:
                 self.set_status(f"Loaded {len(self.faces)} tags from metadata.")
                 
+            self.sort_faces()
             self.is_modified = False
             
             # 5. Populate Description text box
@@ -785,8 +800,9 @@ class PhotoTaggerApp(ctk.CTk):
 
     def get_selected_font_size_style(self):
         font_size_map = {
-            "Auto (1.0x)": {"scale": 1.0, "px": 13},
+            "Micro (0.5x)": {"scale": 0.5, "px": 8},
             "Small (0.7x)": {"scale": 0.7, "px": 10},
+            "Auto (1.0x)": {"scale": 1.0, "px": 13},
             "Medium (1.2x)": {"scale": 1.2, "px": 16},
             "Large (1.5x)": {"scale": 1.5, "px": 20},
             "X-Large (2.0x)": {"scale": 2.0, "px": 26}
@@ -912,6 +928,7 @@ class PhotoTaggerApp(ctk.CTk):
                     'h': nh
                 }
                 self.faces.append(new_face)
+                self.sort_faces()
                 self.is_modified = True
                 
                 # Auto-select the newly created face
@@ -1204,6 +1221,24 @@ class PhotoTaggerApp(ctk.CTk):
             self.draw_canvas()
             self.set_status("Cleared tags.")
             
+    def sort_faces(self):
+        """
+        Sorts tags in natural row order (Top-to-Bottom, Left-to-Right).
+        Preserves selected/hovered face references across sorting.
+        """
+        if not self.faces:
+            return
+            
+        selected_face = self.faces[self.selected_face_idx] if (self.selected_face_idx is not None and 0 <= self.selected_face_idx < len(self.faces)) else None
+        hovered_face = self.faces[self.hovered_face_idx] if (self.hovered_face_idx is not None and 0 <= self.hovered_face_idx < len(self.faces)) else None
+        
+        self.faces = sort_faces_spatial(self.faces)
+        
+        if selected_face and selected_face in self.faces:
+            self.selected_face_idx = self.faces.index(selected_face)
+        if hovered_face and hovered_face in self.faces:
+            self.hovered_face_idx = self.faces.index(hovered_face)
+
     def redetect_faces(self):
         if not self.current_image_path:
             return
@@ -1211,6 +1246,7 @@ class PhotoTaggerApp(ctk.CTk):
         if messagebox.askyesno("Re-detect Faces", "This will clear current face tags and run the automatic detector. Proceed?"):
             self.set_status("Running face detection...")
             self.faces = detect_faces(self.current_image_path)
+            self.sort_faces()
             self.is_modified = True
             self.selected_face_idx = None
             self.hovered_face_idx = None
@@ -1226,6 +1262,7 @@ class PhotoTaggerApp(ctk.CTk):
             return
             
         self.set_status("Saving tags and updating metadata...")
+        self.sort_faces()
         
         # Read textbox to make sure we get the final edited description
         self.description = self.desc_textbox.get("1.0", "end-1c").strip()
@@ -1297,6 +1334,7 @@ class PhotoTaggerApp(ctk.CTk):
             return
             
         self.set_status("Generating annotated images...")
+        self.sort_faces()
         
         # Make sure description and tags are synchronized (read from textbox if modified)
         self.description = self.desc_textbox.get("1.0", "end-1c").strip()
@@ -1322,10 +1360,10 @@ class PhotoTaggerApp(ctk.CTk):
         font_size_style = self.get_selected_font_size_style()
         
         # 1. Export Numbered (draw_names = False)
-        success_num = draw_annotations_on_image(self.current_image_path, self.faces, numbered_path, draw_names=False, color_style=color_style, font_size_style=font_size_style)
+        success_num = draw_annotations_on_image(self.current_image_path, self.faces, numbered_path, draw_names=False, color_style=color_style, font_size_style=font_size_style, description=self.description)
         
         # 2. Export Tagged (draw_names = True)
-        success_tag = draw_annotations_on_image(self.current_image_path, self.faces, tagged_path, draw_names=True, color_style=color_style, font_size_style=font_size_style)
+        success_tag = draw_annotations_on_image(self.current_image_path, self.faces, tagged_path, draw_names=True, color_style=color_style, font_size_style=font_size_style, description=self.description)
         
         if success_num and success_tag:
             self.set_status("Annotated images exported successfully!")
@@ -1399,11 +1437,426 @@ class PhotoTaggerApp(ctk.CTk):
         self.lbl_status.configure(text=text)
         self.update_idletasks()
         
+    def open_editor_2b(self):
+        if not self.current_image_path or not self.faces:
+            messagebox.showinfo("No Photo Loaded", "Please open a photo with face tags first.")
+            return
+        Output2bEditorWindow(self)
+
     def on_closing(self):
         if self.is_modified:
             if messagebox.askyesno("Unsaved Changes", "You have unsaved changes. Do you want to save them before exiting?"):
                 self.save_current()
         self.destroy()
+
+class Output2bEditorWindow(ctk.CTkToplevel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.parent = parent
+        self.title("Fine-Tune Output 2-b (Photo Tagger v2.3)")
+        self.geometry("1200x900")
+        
+        self.zoom_factor = 1.0
+        self.view_center_x = 0.5
+        self.view_center_y = 0.5
+        self.dragging_idx = None
+        self.is_panning = False
+        self.pan_start_x = 0
+        self.pan_start_y = 0
+        self.drag_start_x = 0
+        self.drag_start_y = 0
+        
+        self.grid_rowconfigure(0, weight=0) # Top Control Bar
+        self.grid_rowconfigure(1, weight=1) # Interactive Canvas
+        self.grid_rowconfigure(2, weight=0) # Bottom Bar
+        self.grid_columnconfigure(0, weight=1)
+        
+        # 1. Top Control Bar
+        self.ctrl_frame = ctk.CTkFrame(self, height=55, corner_radius=0)
+        self.ctrl_frame.grid(row=0, column=0, sticky="ew", padx=0, pady=0)
+        
+        # Color Selector
+        lbl_color = ctk.CTkLabel(self.ctrl_frame, text="Tag Color:", font=("Segoe UI", 11, "bold"))
+        lbl_color.pack(side="left", padx=(15, 3), pady=10)
+        
+        self.combo_color = ctk.CTkComboBox(
+            self.ctrl_frame, 
+            values=["Teal", "Blue", "Purple", "Green", "Orange/Red", "Yellow", "White", "Black"], 
+            width=110, 
+            font=("Segoe UI", 11),
+            command=lambda val: self.render_editor_canvas()
+        )
+        self.combo_color.pack(side="left", padx=(0, 15), pady=10)
+        self.combo_color.set(self.parent.combo_style_color.get())
+        
+        # Size Selector
+        lbl_size = ctk.CTkLabel(self.ctrl_frame, text="Tag Size:", font=("Segoe UI", 11, "bold"))
+        lbl_size.pack(side="left", padx=(0, 3), pady=10)
+        
+        self.combo_size = ctk.CTkComboBox(
+            self.ctrl_frame, 
+            values=["Micro (0.5x)", "Small (0.7x)", "Auto (1.0x)", "Medium (1.2x)", "Large (1.5x)", "X-Large (2.0x)"], 
+            width=120, 
+            font=("Segoe UI", 11),
+            command=lambda val: self.render_editor_canvas()
+        )
+        self.combo_size.pack(side="left", padx=(0, 15), pady=10)
+        self.combo_size.set(self.parent.combo_style_font_size.get())
+
+        # Zoom Controls
+        self.btn_zoom_out = ctk.CTkButton(self.ctrl_frame, text="➖", command=self.zoom_out, width=32, height=28, font=("Segoe UI", 12, "bold"))
+        self.btn_zoom_out.pack(side="left", padx=3, pady=10)
+        
+        self.lbl_zoom = ctk.CTkLabel(self.ctrl_frame, text="Zoom: 100%", font=("Segoe UI", 11, "bold"), width=80)
+        self.lbl_zoom.pack(side="left", padx=3, pady=10)
+        
+        self.btn_zoom_in = ctk.CTkButton(self.ctrl_frame, text="➕", command=self.zoom_in, width=32, height=28, font=("Segoe UI", 12, "bold"))
+        self.btn_zoom_in.pack(side="left", padx=3, pady=10)
+        
+        self.btn_zoom_reset = ctk.CTkButton(self.ctrl_frame, text="🔄 100%", command=self.zoom_reset, width=65, height=28, font=("Segoe UI", 10, "bold"), fg_color="#4b5563", hover_color="#374151")
+        self.btn_zoom_reset.pack(side="left", padx=(3, 15), pady=10)
+
+        # Reset Positions Button
+        btn_reset = ctk.CTkButton(
+            self.ctrl_frame, 
+            text="🔄 Reset Layout", 
+            command=self.reset_positions, 
+            width=120, 
+            fg_color="#4b5563", 
+            hover_color="#374151", 
+            font=("Segoe UI", 11, "bold")
+        )
+        btn_reset.pack(side="right", padx=15, pady=10)
+        
+        # 2. Main Canvas Container
+        self.canvas_container = ctk.CTkFrame(self, fg_color="#0f172a")
+        self.canvas_container.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
+        self.canvas_container.grid_rowconfigure(0, weight=1)
+        self.canvas_container.grid_columnconfigure(0, weight=1)
+        
+        self.canvas = tk.Canvas(self.canvas_container, bg="#0f172a", highlightthickness=0)
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        
+        # Canvas Mouse Events (Left-Click Drag Badges)
+        self.canvas.bind("<Configure>", self.render_editor_canvas)
+        self.canvas.bind("<ButtonPress-1>", self.on_press)
+        self.canvas.bind("<B1-Motion>", self.on_drag)
+        self.canvas.bind("<ButtonRelease-1>", self.on_release)
+        
+        # Panning (Right Click Drag)
+        self.canvas.bind("<ButtonPress-3>", self.on_pan_press)
+        self.canvas.bind("<B3-Motion>", self.on_pan_drag)
+        self.canvas.bind("<ButtonRelease-3>", self.on_pan_release)
+        
+        # Mouse Wheel Zoom
+        self.canvas.bind("<MouseWheel>", self.on_mouse_zoom)
+        self.canvas.bind("<Button-4>", lambda e: self.on_mouse_zoom_linux(e, True))
+        self.canvas.bind("<Button-5>", lambda e: self.on_mouse_zoom_linux(e, False))
+        
+        # 3. Bottom Action Bar
+        self.bottom_frame = ctk.CTkFrame(self, height=50, corner_radius=0)
+        self.bottom_frame.grid(row=2, column=0, sticky="ew", padx=0, pady=0)
+        
+        lbl_hint = ctk.CTkLabel(
+            self.bottom_frame, 
+            text="💡 Scroll MouseWheel to Zoom • Right-Click Drag to Pan • Left-Click Drag any badge to move it", 
+            font=("Segoe UI", 11, "italic"), 
+            text_color="#94a3b8"
+        )
+        lbl_hint.pack(side="left", padx=15, pady=10)
+        
+        btn_close = ctk.CTkButton(
+            self.bottom_frame, 
+            text="Cancel", 
+            command=self.destroy, 
+            width=90, 
+            fg_color="#ef4444", 
+            hover_color="#dc2626", 
+            font=("Segoe UI", 11, "bold")
+        )
+        btn_close.pack(side="right", padx=15, pady=10)
+        
+        btn_export = ctk.CTkButton(
+            self.bottom_frame, 
+            text="💾 Save and Export Output", 
+            command=self.save_and_export, 
+            width=190, 
+            fg_color="#10b981", 
+            hover_color="#059669", 
+            font=("Segoe UI", 12, "bold")
+        )
+        btn_export.pack(side="right", padx=5, pady=10)
+        
+        self.tk_preview = None
+        self.scale = 1.0
+        self.pad_x = 0
+        self.pad_y = 0
+        self.orig_w = 800
+        self.orig_h = 600
+        self.crop_left = 0
+        self.crop_top = 0
+        
+        self.after(200, self.render_editor_canvas)
+
+    def get_color_style(self):
+        color_map = {
+            "Teal": {"rgb": (20, 184, 166), "hex": "#14b8a6"},
+            "Blue": {"rgb": (59, 130, 246), "hex": "#3b82f6"},
+            "Purple": {"rgb": (168, 85, 247), "hex": "#a855f7"},
+            "Green": {"rgb": (34, 197, 94), "hex": "#22c55e"},
+            "Orange/Red": {"rgb": (249, 115, 22), "hex": "#f97316"},
+            "Yellow": {"rgb": (234, 179, 8), "hex": "#eab308"},
+            "White": {"rgb": (255, 255, 255), "hex": "#ffffff"},
+            "Black": {"rgb": (30, 41, 59), "hex": "#1e293b"}
+        }
+        val = self.combo_color.get()
+        return color_map.get(val, color_map["Teal"])
+
+    def get_font_style(self):
+        size_map = {
+            "Micro (0.5x)": {"scale": 0.5},
+            "Small (0.7x)": {"scale": 0.7},
+            "Auto (1.0x)": {"scale": 1.0},
+            "Medium (1.2x)": {"scale": 1.2},
+            "Large (1.5x)": {"scale": 1.5},
+            "X-Large (2.0x)": {"scale": 2.0}
+        }
+        val = self.combo_size.get()
+        return size_map.get(val, size_map["Auto (1.0x)"])
+
+    def zoom_in(self):
+        self.zoom_factor = min(8.0, self.zoom_factor * 1.25)
+        self.lbl_zoom.configure(text=f"Zoom: {int(self.zoom_factor * 100)}%")
+        self.render_editor_canvas()
+
+    def zoom_out(self):
+        self.zoom_factor = max(1.0, self.zoom_factor / 1.25)
+        if self.zoom_factor == 1.0:
+            self.view_center_x = 0.5
+            self.view_center_y = 0.5
+        self.lbl_zoom.configure(text=f"Zoom: {int(self.zoom_factor * 100)}%")
+        self.render_editor_canvas()
+
+    def zoom_reset(self):
+        self.zoom_factor = 1.0
+        self.view_center_x = 0.5
+        self.view_center_y = 0.5
+        self.lbl_zoom.configure(text="Zoom: 100%")
+        self.render_editor_canvas()
+
+    def on_mouse_zoom(self, event):
+        if event.delta > 0:
+            self.zoom_in()
+        else:
+            self.zoom_out()
+
+    def on_mouse_zoom_linux(self, event, is_in):
+        if is_in:
+            self.zoom_in()
+        else:
+            self.zoom_out()
+
+    def on_pan_press(self, event):
+        self.is_panning = True
+        self.pan_start_x = event.x
+        self.pan_start_y = event.y
+
+    def on_pan_drag(self, event):
+        if not self.is_panning or self.zoom_factor <= 1.0:
+            return
+        dx = event.x - self.pan_start_x
+        dy = event.y - self.pan_start_y
+        self.pan_start_x = event.x
+        self.pan_start_y = event.y
+        
+        canvas_w = max(50, self.canvas.winfo_width())
+        canvas_h = max(50, self.canvas.winfo_height())
+        
+        self.view_center_x -= (dx / float(canvas_w * self.zoom_factor))
+        self.view_center_y -= (dy / float(canvas_h * self.zoom_factor))
+        self.render_editor_canvas()
+
+    def on_pan_release(self, event):
+        self.is_panning = False
+
+    def reset_positions(self):
+        for f in self.parent.faces:
+            f['bx'] = None
+            f['by'] = None
+        self.render_editor_canvas()
+        
+    def render_editor_canvas(self, event=None):
+        if not self.parent.current_image_path or not self.parent.faces:
+            return
+            
+        color_style = self.get_color_style()
+        font_style = self.get_font_style()
+        color_hex = color_style["hex"]
+        
+        # Sync main app dropdowns so saved files match
+        self.parent.combo_style_color.set(self.combo_color.get())
+        self.parent.combo_style_font_size.set(self.combo_size.get())
+        
+        import tempfile
+        temp_dir = tempfile.gettempdir()
+        temp_out = os.path.join(temp_dir, "temp_preview_2b.jpg")
+        
+        # Generate base image with footer legend (for_editor=True skips baking badges into PIL image)
+        draw_annotations_on_image(
+            self.parent.current_image_path, 
+            self.parent.faces, 
+            temp_out, 
+            draw_names=True, 
+            color_style=color_style, 
+            font_size_style=font_style, 
+            description=self.parent.description,
+            for_editor=True
+        )
+        
+        if os.path.exists(temp_out):
+            with Image.open(temp_out) as img:
+                canvas_w = max(50, self.canvas.winfo_width())
+                canvas_h = max(50, self.canvas.winfo_height())
+                
+                orig_w, orig_h = img.size
+                photo_w, photo_h = self.parent.original_pil_image.size
+                
+                base_scale = min(canvas_w / orig_w, canvas_h / orig_h)
+                scale = base_scale * self.zoom_factor
+                
+                crop_w = min(orig_w, canvas_w / scale)
+                crop_h = min(orig_h, canvas_h / scale)
+                
+                half_w_norm = (crop_w / 2.0) / orig_w
+                half_h_norm = (crop_h / 2.0) / orig_h
+                self.view_center_x = max(half_w_norm, min(1.0 - half_w_norm, self.view_center_x))
+                self.view_center_y = max(half_h_norm, min(1.0 - half_h_norm, self.view_center_y))
+                
+                crop_left = self.view_center_x * orig_w - crop_w / 2.0
+                crop_right = self.view_center_x * orig_w + crop_w / 2.0
+                crop_top = self.view_center_y * orig_h - crop_h / 2.0
+                crop_bottom = self.view_center_y * orig_h + crop_h / 2.0
+                
+                display_w = int(orig_w * scale) if orig_w * scale < canvas_w else canvas_w
+                display_h = int(orig_h * scale) if orig_h * scale < canvas_h else canvas_h
+                
+                self.pad_x = (canvas_w - display_w) // 2
+                self.pad_y = (canvas_h - display_h) // 2
+                self.scale = scale
+                self.crop_left = crop_left
+                self.crop_top = crop_top
+                self.orig_w = orig_w
+                self.orig_h = orig_h
+                self.photo_w = photo_w
+                self.photo_h = photo_h
+                
+                cropped = img.crop((crop_left, crop_top, crop_right, crop_bottom))
+                resized = cropped.resize((display_w, display_h), Image.Resampling.LANCZOS)
+                self.tk_preview = ImageTk.PhotoImage(resized)
+                
+                self.canvas.delete("all")
+                self.canvas.create_image(canvas_w // 2, canvas_h // 2, image=self.tk_preview, anchor="center")
+                
+                # Render native Tkinter interactive canvas items for all face badges (photo bounds only)
+                base_font_size = max(16, int(min(photo_w, photo_h) / 45))
+                scale_factor = font_style.get("scale", 1.0)
+                uniform_badge_r = max(14, int(base_font_size * 0.95 * scale_factor))
+                badge_r_canvas = max(11, int(uniform_badge_r * scale))
+                font_size_canvas = max(9, int(badge_r_canvas * 0.72))
+                
+                for idx, f in enumerate(self.parent.faces):
+                    bx_norm = f.get('bx') if f.get('bx') is not None else f['x']
+                    by_norm = f.get('by') if f.get('by') is not None else (f['y'] - f['h']/2.0 - 0.03)
+                    
+                    bx_orig = bx_norm * photo_w
+                    by_orig = by_norm * photo_h
+                    
+                    cx_canvas = self.pad_x + (bx_orig - crop_left) * scale
+                    cy_canvas = self.pad_y + (by_orig - crop_top) * scale
+                    
+                    # Create uniform circle badge oval item with tag_ prefix
+                    self.canvas.create_oval(
+                        cx_canvas - badge_r_canvas, cy_canvas - badge_r_canvas, 
+                        cx_canvas + badge_r_canvas, cy_canvas + badge_r_canvas, 
+                        fill=color_hex, outline="#ffffff", width=2, 
+                        tags=("badge_element", f"tag_{idx}")
+                    )
+                    
+                    num_str = str(idx + 1)
+                    
+                    # Create centered text item inside badge with uniform font size
+                    self.canvas.create_text(
+                        cx_canvas, cy_canvas, 
+                        text=num_str, fill="#ffffff", 
+                        font=("Segoe UI", font_size_canvas, "bold"), 
+                        tags=("badge_element", f"tag_{idx}")
+                    )
+                    
+                # Bind mouse drag events natively to all badge items
+                self.canvas.tag_bind("badge_element", "<ButtonPress-1>", self.on_press)
+                self.canvas.tag_bind("badge_element", "<B1-Motion>", self.on_drag)
+                self.canvas.tag_bind("badge_element", "<ButtonRelease-1>", self.on_release)
+                
+    def on_press(self, event):
+        if not hasattr(self, 'scale') or not self.parent.faces:
+            return
+            
+        # 1. Try item directly under cursor
+        items = list(self.canvas.find_withtag("current"))
+        
+        # 2. Try items in an 8px box around cursor
+        if not items or any(t == "bg_image" for i in items for t in self.canvas.gettags(i)):
+            items = list(self.canvas.find_overlapping(event.x - 8, event.y - 8, event.x + 8, event.y + 8))
+            
+        # 3. Fallback: closest item within 30px
+        if not items or all(any(t == "bg_image" for t in self.canvas.gettags(i)) for i in items):
+            closest = self.canvas.find_closest(event.x, event.y, halo=30)
+            if closest:
+                items = list(closest)
+                
+        for item in reversed(items):
+            tags = self.canvas.gettags(item)
+            for t in tags:
+                if t.startswith("tag_"):
+                    self.dragging_idx = int(t.split("_")[1])
+                    self.drag_start_x = event.x
+                    self.drag_start_y = event.y
+                    return
+            
+    def on_drag(self, event):
+        if self.dragging_idx is None:
+            return
+            
+        # Native Tkinter canvas item move (0.0ms delay - 120 FPS smooth)
+        dx = event.x - self.drag_start_x
+        dy = event.y - self.drag_start_y
+        self.drag_start_x = event.x
+        self.drag_start_y = event.y
+        
+        self.canvas.move(f"tag_{self.dragging_idx}", dx, dy)
+        
+    def on_release(self, event):
+        if self.dragging_idx is not None:
+            # Update face's normalized badge position relative strictly to photo_h
+            coords = self.canvas.coords(f"tag_{self.dragging_idx}")
+            if coords and len(coords) >= 4:
+                cx_canvas = (coords[0] + coords[2]) / 2.0
+                cy_canvas = (coords[1] + coords[3]) / 2.0
+                
+                bx_orig = self.crop_left + (cx_canvas - self.pad_x) / float(self.scale)
+                by_orig = self.crop_top + (cy_canvas - self.pad_y) / float(self.scale)
+                
+                bx_norm = max(0.0, min(1.0, bx_orig / float(self.photo_w)))
+                by_norm = max(0.0, min(1.0, by_orig / float(self.photo_h)))
+                
+                self.parent.faces[self.dragging_idx]['bx'] = bx_norm
+                self.parent.faces[self.dragging_idx]['by'] = by_norm
+                
+            self.dragging_idx = None
+
+    def save_and_export(self):
+        self.destroy()
+        self.parent.export_annotated()
 
 if __name__ == "__main__":
     app = PhotoTaggerApp()
