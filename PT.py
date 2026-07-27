@@ -24,7 +24,7 @@ class PhotoTaggerApp(ctk.CTk):
         super().__init__()
         
         # Window setup
-        self.title("Photo Tagger (v.2.4)")
+        self.title("Photo Tagger (v.2.5)")
         self.geometry("1300x850")
         self.minsize(1000, 700)
         
@@ -106,77 +106,162 @@ class PhotoTaggerApp(ctk.CTk):
         self.grid_columnconfigure(0, weight=1)
         
         # ----------------------------------------------------
-        # 1. Top Action Header
+        # 1. Top Action Header (Clean Ghost/Primary Hierarchy)
         # ----------------------------------------------------
-        self.header_frame = ctk.CTkFrame(self, height=60, corner_radius=0)
+        self.header_frame = ctk.CTkFrame(self, height=56, corner_radius=0, fg_color="#1e1e2e", border_width=1, border_color="#313244")
         self.header_frame.grid(row=0, column=0, sticky="ew", padx=0, pady=0)
         
-        # Left header section: Brand Logo & File actions
+        # Left header section: Brand Logo & Title
         if hasattr(self, 'app_logo_img') and self.app_logo_img:
             self.lbl_brand_logo = ctk.CTkLabel(self.header_frame, image=self.app_logo_img, text="")
             self.lbl_brand_logo.pack(side="left", padx=(15, 6), pady=12)
             
-        self.lbl_brand_title = ctk.CTkLabel(self.header_frame, text="Photo Tagger", font=("Segoe UI", 13, "bold"), text_color="#f8fafc")
+        self.lbl_brand_title = ctk.CTkLabel(self.header_frame, text="Photo Tagger", font=("Segoe UI", 13, "bold"), text_color="#cdd6f4")
         self.lbl_brand_title.pack(side="left", padx=(0, 4), pady=12)
         
         self.lbl_brand_version = ctk.CTkLabel(
             self.header_frame, 
-            text="v.2.4", 
+            text="v.2.5", 
             font=("Segoe UI", 9, "bold"), 
-            text_color="#ffffff", 
-            fg_color="#0ea5e9", 
+            text_color="#181825", 
+            fg_color="#89b4fa", 
             corner_radius=6, 
             width=36, 
             height=18
         )
         self.lbl_brand_version.pack(side="left", padx=(0, 15), pady=12)
         
-        self.btn_open_file = ctk.CTkButton(self.header_frame, text="📁 Open Photo", command=self.open_file, width=115, font=("Segoe UI", 12, "bold"))
-        self.btn_open_file.pack(side="left", padx=5, pady=12)
+        # Neutral Outline / Ghost Utility Buttons
+        self.btn_open_file = ctk.CTkButton(
+            self.header_frame, 
+            text="📁 Open Photo", 
+            command=self.open_file, 
+            width=110, 
+            height=30,
+            fg_color="transparent", 
+            border_width=1, 
+            border_color="#45475a", 
+            text_color="#cdd6f4", 
+            hover_color="#313244", 
+            font=("Segoe UI", 11, "bold"),
+            corner_radius=6
+        )
+        self.btn_open_file.pack(side="left", padx=4, pady=12)
         
-        self.btn_open_folder = ctk.CTkButton(self.header_frame, text="📂 Open Folder", command=self.open_folder, width=115, font=("Segoe UI", 12, "bold"))
-        self.btn_open_folder.pack(side="left", padx=5, pady=12)
+        self.btn_open_folder = ctk.CTkButton(
+            self.header_frame, 
+            text="📂 Open Folder", 
+            command=self.open_folder, 
+            width=110, 
+            height=30,
+            fg_color="transparent", 
+            border_width=1, 
+            border_color="#45475a", 
+            text_color="#cdd6f4", 
+            hover_color="#313244", 
+            font=("Segoe UI", 11, "bold"),
+            corner_radius=6
+        )
+        self.btn_open_folder.pack(side="left", padx=4, pady=12)
         
-        self.btn_save = ctk.CTkButton(self.header_frame, text="💾 Save Tags", command=self.save_current, width=115, fg_color="#10b981", hover_color="#059669", font=("Segoe UI", 12, "bold"))
+        # Primary Highlighted CTA Button (Save Tags)
+        self.btn_save = ctk.CTkButton(
+            self.header_frame, 
+            text="💾 Save Tags", 
+            command=self.save_current, 
+            width=110, 
+            height=30,
+            fg_color="#a6e3a1", 
+            hover_color="#94e295", 
+            text_color="#181825", 
+            font=("Segoe UI", 11, "bold"),
+            corner_radius=6
+        )
         self.btn_save.pack(side="left", padx=10, pady=12)
         
         # Output Format Selector
-        self.lbl_format = ctk.CTkLabel(self.header_frame, text="Output Format:", font=("Segoe UI", 11, "bold"))
-        self.lbl_format.pack(side="left", padx=(10, 5), pady=12)
+        self.lbl_format = ctk.CTkLabel(self.header_frame, text="Format:", font=("Segoe UI", 11, "bold"), text_color="#a6adc8")
+        self.lbl_format.pack(side="left", padx=(10, 4), pady=12)
         
-        self.combo_format = ctk.CTkComboBox(self.header_frame, values=["Original", "JPEG", "PNG", "WebP"], width=100, font=("Segoe UI", 11))
-        self.combo_format.pack(side="left", padx=(0, 15), pady=12)
+        self.combo_format = ctk.CTkComboBox(
+            self.header_frame, 
+            values=["Original", "JPEG", "PNG", "WebP"], 
+            width=95, 
+            height=30,
+            font=("Segoe UI", 11),
+            dropdown_fg_color="#252536",
+            fg_color="#181825",
+            border_width=1,
+            border_color="#45475a",
+            corner_radius=6
+        )
+        self.combo_format.pack(side="left", padx=(0, 10), pady=12)
         
-        # Export Files Button (Generates Output 1a, 1b, 2a, 2b)
+        # Secondary Export Files Button
         self.btn_export_annotated = ctk.CTkButton(
             self.header_frame, 
             text="🎨 Export Files", 
             command=self.export_annotated, 
-            width=135, 
-            fg_color="#a855f7", 
-            hover_color="#9333ea", 
-            font=("Segoe UI", 12, "bold")
+            width=120, 
+            height=30,
+            fg_color="#cba6f7", 
+            hover_color="#f5c2e7", 
+            text_color="#181825", 
+            font=("Segoe UI", 11, "bold"),
+            corner_radius=6
         )
-        self.btn_export_annotated.pack(side="left", padx=(15, 5), pady=12)
+        self.btn_export_annotated.pack(side="left", padx=4, pady=12)
         
-        # Fine-Tune Output 2b Button
+        # Ghost Fine-Tune Button
         self.btn_finetune_2b = ctk.CTkButton(
             self.header_frame, 
             text="✏️ Fine-Tune", 
             command=self.open_editor_2b, 
-            width=130, 
-            fg_color="#0284c7", 
-            hover_color="#0369a1", 
-            font=("Segoe UI", 12, "bold")
+            width=115, 
+            height=30,
+            fg_color="transparent", 
+            border_width=1, 
+            border_color="#89b4fa", 
+            text_color="#89b4fa", 
+            hover_color="#313244", 
+            font=("Segoe UI", 11, "bold"),
+            corner_radius=6
         )
-        self.btn_finetune_2b.pack(side="left", padx=5, pady=12)
+        self.btn_finetune_2b.pack(side="left", padx=4, pady=12)
         
-        # Right header section: Tag editing helpers
-        self.btn_clear_tags = ctk.CTkButton(self.header_frame, text="❌ Clear All", command=self.clear_all_tags, width=100, fg_color="#ef4444", hover_color="#dc2626", font=("Segoe UI", 11, "bold"))
+        # Destructive Action: Clear All (Subtle Red Text Ghost Style)
+        self.btn_clear_tags = ctk.CTkButton(
+            self.header_frame, 
+            text="✕ Clear All", 
+            command=self.clear_all_tags, 
+            width=90, 
+            height=30,
+            fg_color="transparent", 
+            border_width=1, 
+            border_color="#f38ba8", 
+            text_color="#f38ba8", 
+            hover_color="#313244", 
+            font=("Segoe UI", 11, "bold"),
+            corner_radius=6
+        )
         self.btn_clear_tags.pack(side="right", padx=15, pady=12)
         
-        self.btn_redetect = ctk.CTkButton(self.header_frame, text="🔄 Re-Detect Faces", command=self.redetect_faces, width=120, fg_color="#3b82f6", hover_color="#2563eb", font=("Segoe UI", 11, "bold"))
-        self.btn_redetect.pack(side="right", padx=5, pady=12)
+        # Ghost Re-Detect Button
+        self.btn_redetect = ctk.CTkButton(
+            self.header_frame, 
+            text="🔄 Re-Detect", 
+            command=self.redetect_faces, 
+            width=110, 
+            height=30,
+            fg_color="transparent", 
+            border_width=1, 
+            border_color="#89b4fa", 
+            text_color="#89b4fa", 
+            hover_color="#313244", 
+            font=("Segoe UI", 11, "bold"),
+            corner_radius=6
+        )
+        self.btn_redetect.pack(side="right", padx=4, pady=12)
         
         # ----------------------------------------------------
         # 2. Main Area (Split: Left Canvas, Right Sidebar)
@@ -188,13 +273,13 @@ class PhotoTaggerApp(ctk.CTk):
         self.main_split.grid_rowconfigure(0, weight=1)
         
         # Left Panel: Canvas Container
-        self.canvas_container = ctk.CTkFrame(self.main_split, corner_radius=10, fg_color="#111827")
+        self.canvas_container = ctk.CTkFrame(self.main_split, corner_radius=10, fg_color="#11111b", border_width=1, border_color="#313244")
         self.canvas_container.grid(row=0, column=0, sticky="nsew", padx=(0, 5), pady=0)
         self.canvas_container.grid_rowconfigure(0, weight=1)
         self.canvas_container.grid_columnconfigure(0, weight=1)
         
         # The Bounding Box Canvas
-        self.canvas = tk.Canvas(self.canvas_container, bg="#111827", highlightthickness=0)
+        self.canvas = tk.Canvas(self.canvas_container, bg="#11111b", highlightthickness=0)
         self.canvas.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
         
         # Canvas mouse event bindings
@@ -216,26 +301,43 @@ class PhotoTaggerApp(ctk.CTk):
         self.canvas.bind("<Button-5>", lambda event: self.on_mouse_zoom_linux(event, False))
         
         # Right Panel: Sidebar Controls
-        self.sidebar_frame = ctk.CTkFrame(self.main_split, corner_radius=10, width=320)
+        self.sidebar_frame = ctk.CTkFrame(self.main_split, corner_radius=10, width=320, fg_color="#1e1e2e", border_width=1, border_color="#313244")
         self.sidebar_frame.grid(row=0, column=1, sticky="nsew", padx=(5, 0), pady=0)
         self.sidebar_frame.grid_propagate(False)
         
         # Sidebar grid configuration
-        self.sidebar_frame.grid_rowconfigure(0, weight=0) # Instructions Card
+        self.sidebar_frame.grid_rowconfigure(0, weight=0) # Collapsible Instructions Card
         self.sidebar_frame.grid_rowconfigure(1, weight=0) # Description header
         self.sidebar_frame.grid_rowconfigure(2, weight=0) # Description textbox
         self.sidebar_frame.grid_rowconfigure(3, weight=0) # Style Settings Frame
         self.sidebar_frame.grid_rowconfigure(4, weight=0) # Faces header
-        self.sidebar_frame.grid_rowconfigure(5, weight=1) # Faces scrollframe
-        self.sidebar_frame.grid_rowconfigure(6, weight=0) # Credit label
+        self.sidebar_frame.grid_rowconfigure(5, weight=1) # Faces scrollframe (Maximized Space)
+        self.sidebar_frame.grid_rowconfigure(6, weight=0) # Credit label card
         self.sidebar_frame.grid_columnconfigure(0, weight=1)
         
-        # Sidebar: Quick Instructions Card
-        self.instr_card = ctk.CTkFrame(self.sidebar_frame, fg_color="#1e293b", corner_radius=8, border_width=1, border_color="#334155")
-        self.instr_card.grid(row=0, column=0, sticky="ew", padx=15, pady=(15, 10))
+        # Sidebar: Collapsible Quick Instructions Panel (v2.5)
+        self.instr_card = ctk.CTkFrame(self.sidebar_frame, fg_color="#252536", corner_radius=8, border_width=1, border_color="#313244")
+        self.instr_card.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 6))
         
-        self.instr_title = ctk.CTkLabel(self.instr_card, text="ℹ️ Quick Instructions", font=("Segoe UI", 12, "bold"), text_color="#38bdf8", anchor="w")
-        self.instr_title.pack(fill="x", padx=10, pady=(8, 2))
+        self.instr_header_frame = ctk.CTkFrame(self.instr_card, fg_color="transparent")
+        self.instr_header_frame.pack(fill="x", padx=8, pady=6)
+        
+        self.instr_title = ctk.CTkLabel(self.instr_header_frame, text="ℹ️ Quick Instructions", font=("Segoe UI", 11, "bold"), text_color="#89b4fa", anchor="w")
+        self.instr_title.pack(side="left", padx=4)
+        
+        self.btn_toggle_instr = ctk.CTkButton(
+            self.instr_header_frame, 
+            text="▼ Expand", 
+            width=65, 
+            height=22, 
+            font=("Segoe UI", 9, "bold"), 
+            fg_color="#313244", 
+            hover_color="#45475a", 
+            text_color="#cdd6f4",
+            corner_radius=4,
+            command=self.toggle_instructions
+        )
+        self.btn_toggle_instr.pack(side="right", padx=2)
         
         instr_text = (
             "1. Open a photo or an entire folder.\n"
@@ -244,165 +346,185 @@ class PhotoTaggerApp(ctk.CTk):
             "4. Type names next to face crops on the right.\n"
             "5. Click & drag on image to manually add boxes.\n"
             "6. Enter a general photo description if desired.\n"
-            "7. Click 'Save Tags' to write EXIF/XMP metadata to photo.\n"
-            "8. Click 'Export Files' to generate HTML/SVG/Rendered outputs.\n"
+            "7. Click 'Save Tags' to write EXIF/XMP metadata.\n"
+            "8. Click 'Export Files' to generate HTML/SVG.\n"
             "9. Click 'Fine-Tune' to adjust Output 2-b badges.\n\n"
             "💡 Pro-Tips:\n"
             "• Zoom: Scroll MouseWheel over image.\n"
-            "• Pan: Right-Click and drag zoomed image.\n"
-            "• Fine-Tune: Zoom, pan & drag badge circles.\n"
+            "• Pan: Click 🖐️ Pan Tool or Right-Click drag.\n"
+            "• Fine-Tune: Drag badge circles live.\n"
             "• Resize: Click a box & drag corner handles."
         )
-        self.instr_desc = ctk.CTkLabel(self.instr_card, text=instr_text, font=("Segoe UI", 10.5), justify="left", text_color="#cbd5e1", anchor="w")
-        self.instr_desc.pack(fill="x", padx=10, pady=(0, 8))
+        self.instr_desc = ctk.CTkLabel(self.instr_card, text=instr_text, font=("Segoe UI", 10), justify="left", text_color="#a6adc8", anchor="w")
+        # Collapsed by default to maximize vertical face list space
+        self.instr_expanded = False
         
-        # Sidebar: General Description Header
-        self.desc_label = ctk.CTkLabel(self.sidebar_frame, text="General Photo Description", font=("Segoe UI", 13, "bold"), anchor="w")
-        self.desc_label.grid(row=1, column=0, sticky="ew", padx=15, pady=(5, 5))
+        # Sidebar: General Description Header & Input Box
+        self.desc_label = ctk.CTkLabel(self.sidebar_frame, text="General Photo Description", font=("Segoe UI", 12, "bold"), text_color="#cdd6f4", anchor="w")
+        self.desc_label.grid(row=1, column=0, sticky="ew", padx=14, pady=(6, 2))
         
-        # Sidebar: Description text input
-        self.desc_textbox = ctk.CTkTextbox(self.sidebar_frame, height=70, corner_radius=6, border_width=1, border_color="#374151")
-        self.desc_textbox.grid(row=2, column=0, sticky="ew", padx=15, pady=(0, 15))
+        self.desc_textbox = ctk.CTkTextbox(
+            self.sidebar_frame, 
+            height=60, 
+            corner_radius=6, 
+            border_width=1, 
+            border_color="#313244",
+            fg_color="#1e1e2e",
+            text_color="#cdd6f4"
+        )
+        self.desc_textbox.grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 10))
         self.desc_textbox.bind("<KeyRelease>", self.on_description_changed)
         
-        # Sidebar: Style Settings Card (v2.2)
-        self.style_frame = ctk.CTkFrame(self.sidebar_frame, fg_color="transparent")
-        self.style_frame.grid(row=3, column=0, sticky="ew", padx=15, pady=(0, 15))
+        # Sidebar: Style Settings Card
+        self.style_frame = ctk.CTkFrame(self.sidebar_frame, fg_color="#252536", corner_radius=8, border_width=1, border_color="#313244")
+        self.style_frame.grid(row=3, column=0, sticky="ew", padx=12, pady=(0, 10))
         self.style_frame.grid_columnconfigure(0, weight=1)
         self.style_frame.grid_columnconfigure(1, weight=1)
         
-        self.lbl_style_color = ctk.CTkLabel(self.style_frame, text="Tag Color:", font=("Segoe UI", 11, "bold"), anchor="w")
-        self.lbl_style_color.grid(row=0, column=0, sticky="w", padx=(0, 5), pady=(0, 2))
+        self.lbl_style_color = ctk.CTkLabel(self.style_frame, text="Tag Color:", font=("Segoe UI", 11, "bold"), text_color="#a6adc8", anchor="w")
+        self.lbl_style_color.grid(row=0, column=0, sticky="w", padx=(10, 4), pady=(8, 2))
         
         self.combo_style_color = ctk.CTkComboBox(
             self.style_frame, 
             values=["Teal", "Blue", "Purple", "Green", "Orange/Red"], 
-            width=135, 
+            width=125, 
+            height=28,
             font=("Segoe UI", 11),
+            dropdown_fg_color="#252536",
+            fg_color="#181825",
+            border_width=1,
+            border_color="#45475a",
+            corner_radius=6,
             command=lambda val: self.draw_canvas()
         )
-        self.combo_style_color.grid(row=1, column=0, sticky="ew", padx=(0, 5))
+        self.combo_style_color.grid(row=1, column=0, sticky="ew", padx=(10, 4), pady=(0, 8))
         self.combo_style_color.set("Teal")
         
-        self.lbl_style_font_size = ctk.CTkLabel(self.style_frame, text="Font Size:", font=("Segoe UI", 11, "bold"), anchor="w")
-        self.lbl_style_font_size.grid(row=0, column=1, sticky="w", padx=(5, 0), pady=(0, 2))
+        self.lbl_style_font_size = ctk.CTkLabel(self.style_frame, text="Font Size:", font=("Segoe UI", 11, "bold"), text_color="#a6adc8", anchor="w")
+        self.lbl_style_font_size.grid(row=0, column=1, sticky="w", padx=(4, 10), pady=(8, 2))
         
         self.combo_style_font_size = ctk.CTkComboBox(
             self.style_frame, 
             values=["Micro (0.5x)", "Small (0.7x)", "Auto (1.0x)", "Medium (1.2x)", "Large (1.5x)", "X-Large (2.0x)"], 
-            width=135, 
+            width=125, 
+            height=28,
             font=("Segoe UI", 11),
+            dropdown_fg_color="#252536",
+            fg_color="#181825",
+            border_width=1,
+            border_color="#45475a",
+            corner_radius=6,
             command=lambda val: self.draw_canvas()
         )
-        self.combo_style_font_size.grid(row=1, column=1, sticky="ew", padx=(5, 0))
+        self.combo_style_font_size.grid(row=1, column=1, sticky="ew", padx=(4, 10), pady=(0, 8))
         self.combo_style_font_size.set("Auto (1.0x)")
         
-        # Sidebar: Faces Header
-        self.faces_header = ctk.CTkLabel(self.sidebar_frame, text="People in Photo", font=("Segoe UI", 13, "bold"), anchor="w")
-        self.faces_header.grid(row=4, column=0, sticky="ew", padx=15, pady=(0, 5))
+        # Sidebar: People in Photo Header
+        self.faces_header = ctk.CTkLabel(self.sidebar_frame, text="People in Photo", font=("Segoe UI", 12, "bold"), text_color="#cdd6f4", anchor="w")
+        self.faces_header.grid(row=4, column=0, sticky="ew", padx=14, pady=(2, 4))
         
-        # Sidebar: Scrollable Faces container
+        # Sidebar: Scrollable Faces Container (Maximized Height)
         self.faces_scroll = ctk.CTkScrollableFrame(self.sidebar_frame, fg_color="transparent")
         self.faces_scroll.grid(row=5, column=0, sticky="nsew", padx=5, pady=(0, 5))
         
-        # Sidebar Credit Card with logo
-        self.credit_card = ctk.CTkFrame(self.sidebar_frame, fg_color="#1e293b", corner_radius=8, border_width=1, border_color="#334155")
-        self.credit_card.grid(row=6, column=0, sticky="ew", padx=15, pady=(5, 12))
+        # Sidebar Credit Card with Logo
+        self.credit_card = ctk.CTkFrame(self.sidebar_frame, fg_color="#252536", corner_radius=8, border_width=1, border_color="#313244")
+        self.credit_card.grid(row=6, column=0, sticky="ew", padx=12, pady=(4, 10))
         
         if hasattr(self, 'app_logo_small') and self.app_logo_small:
             self.lbl_credit_icon = ctk.CTkLabel(self.credit_card, image=self.app_logo_small, text="")
-            self.lbl_credit_icon.pack(side="left", padx=(8, 4), pady=6)
+            self.lbl_credit_icon.pack(side="left", padx=(8, 4), pady=5)
             
         self.credit_label = ctk.CTkLabel(
             self.credit_card, 
-            text="Created by Alireza Mostaghasi (2026) | v.2.4", 
-            font=("Segoe UI", 10, "bold"), 
-            text_color="#94a3b8"
+            text="Created by Alireza Mostaghasi (2026) | v.2.5", 
+            font=("Segoe UI", 9.5, "bold"), 
+            text_color="#a6adc8"
         )
-        self.credit_label.pack(side="left", padx=(0, 8), pady=6)
+        self.credit_label.pack(side="left", padx=(0, 8), pady=5)
         
         # ----------------------------------------------------
-        # 3. Bottom Control & Navigation Bar (Agency-Grade Design Layout)
+        # 3. Bottom Control & Navigation Bar (Single Continuous Footer Strip)
         # ----------------------------------------------------
-        self.bottom_frame = ctk.CTkFrame(self, height=54, corner_radius=0, fg_color="#090d16", border_width=1, border_color="#1e293b")
+        self.bottom_frame = ctk.CTkFrame(self, height=46, corner_radius=0, fg_color="#181825", border_width=1, border_color="#313244")
         self.bottom_frame.grid(row=2, column=0, sticky="ew", padx=0, pady=0)
         
         # Left Section: Photo Navigation Card
-        self.nav_card = ctk.CTkFrame(self.bottom_frame, fg_color="#111827", corner_radius=8, border_width=1, border_color="#1f2937")
-        self.nav_card.pack(side="left", padx=12, pady=7)
+        self.nav_card = ctk.CTkFrame(self.bottom_frame, fg_color="#252536", corner_radius=6, border_width=1, border_color="#313244")
+        self.nav_card.pack(side="left", padx=10, pady=5)
         
-        self.btn_prev = ctk.CTkButton(self.nav_card, text="◀ Prev", command=self.prev_image, width=68, height=28, font=("Segoe UI", 11, "bold"), fg_color="#1f2937", hover_color="#374151", text_color="#f3f4f6", corner_radius=6)
-        self.btn_prev.pack(side="left", padx=4, pady=4)
+        self.btn_prev = ctk.CTkButton(self.nav_card, text="◀ Prev", command=self.prev_image, width=65, height=26, font=("Segoe UI", 10.5, "bold"), fg_color="#313244", hover_color="#45475a", text_color="#cdd6f4", corner_radius=4)
+        self.btn_prev.pack(side="left", padx=3, pady=3)
         
-        self.counter_frame = ctk.CTkFrame(self.nav_card, fg_color="#0f172a", corner_radius=6, border_width=1, border_color="#1e293b")
-        self.counter_frame.pack(side="left", padx=4, pady=4)
+        self.counter_frame = ctk.CTkFrame(self.nav_card, fg_color="#181825", corner_radius=4, border_width=1, border_color="#313244")
+        self.counter_frame.pack(side="left", padx=3, pady=3)
         
-        self.lbl_counter = ctk.CTkLabel(self.counter_frame, text="No Photos Loaded", font=("Segoe UI", 11, "bold"), text_color="#e2e8f0", width=120)
-        self.lbl_counter.pack(padx=8, pady=2)
+        self.lbl_counter = ctk.CTkLabel(self.counter_frame, text="No Photos Loaded", font=("Segoe UI", 10.5, "bold"), text_color="#cdd6f4", width=115)
+        self.lbl_counter.pack(padx=6, pady=1)
         
-        self.btn_next = ctk.CTkButton(self.nav_card, text="Next ▶", command=self.next_image, width=68, height=28, font=("Segoe UI", 11, "bold"), fg_color="#1f2937", hover_color="#374151", text_color="#f3f4f6", corner_radius=6)
-        self.btn_next.pack(side="left", padx=4, pady=4)
+        self.btn_next = ctk.CTkButton(self.nav_card, text="Next ▶", command=self.next_image, width=65, height=26, font=("Segoe UI", 10.5, "bold"), fg_color="#313244", hover_color="#45475a", text_color="#cdd6f4", corner_radius=4)
+        self.btn_next.pack(side="left", padx=3, pady=3)
         
         # Center Section: Viewport Controls Toolbar Card (Zoom & Pan)
-        self.zoom_frame = ctk.CTkFrame(self.bottom_frame, fg_color="#111827", corner_radius=8, border_width=1, border_color="#1f2937")
-        self.zoom_frame.pack(side="left", expand=True, anchor="center", pady=7)
+        self.zoom_frame = ctk.CTkFrame(self.bottom_frame, fg_color="#252536", corner_radius=6, border_width=1, border_color="#313244")
+        self.zoom_frame.pack(side="left", expand=True, anchor="center", pady=5)
         
         # Zoom controls
-        self.btn_zoom_out = ctk.CTkButton(self.zoom_frame, text="➖", command=self.zoom_out, width=28, height=28, font=("Segoe UI", 11, "bold"), fg_color="#1f2937", hover_color="#374151", text_color="#38bdf8", corner_radius=6)
-        self.btn_zoom_out.pack(side="left", padx=(5, 2), pady=4)
+        self.btn_zoom_out = ctk.CTkButton(self.zoom_frame, text="➖", command=self.zoom_out, width=26, height=26, font=("Segoe UI", 10, "bold"), fg_color="#313244", hover_color="#45475a", text_color="#89b4fa", corner_radius=4)
+        self.btn_zoom_out.pack(side="left", padx=(4, 2), pady=3)
         
-        self.zoom_pill = ctk.CTkFrame(self.zoom_frame, fg_color="#0f172a", corner_radius=6, border_width=1, border_color="#1e293b")
-        self.zoom_pill.pack(side="left", padx=2, pady=4)
+        self.zoom_pill = ctk.CTkFrame(self.zoom_frame, fg_color="#181825", corner_radius=4, border_width=1, border_color="#313244")
+        self.zoom_pill.pack(side="left", padx=2, pady=3)
         
-        self.lbl_zoom_level = ctk.CTkLabel(self.zoom_pill, text="Zoom: 100%", font=("Segoe UI", 11, "bold"), text_color="#38bdf8", width=75)
-        self.lbl_zoom_level.pack(padx=4, pady=2)
+        self.lbl_zoom_level = ctk.CTkLabel(self.zoom_pill, text="Zoom: 100%", font=("Segoe UI", 10.5, "bold"), text_color="#89b4fa", width=70)
+        self.lbl_zoom_level.pack(padx=4, pady=1)
         
-        self.btn_zoom_in = ctk.CTkButton(self.zoom_frame, text="➕", command=self.zoom_in, width=28, height=28, font=("Segoe UI", 11, "bold"), fg_color="#1f2937", hover_color="#374151", text_color="#38bdf8", corner_radius=6)
-        self.btn_zoom_in.pack(side="left", padx=2, pady=4)
+        self.btn_zoom_in = ctk.CTkButton(self.zoom_frame, text="➕", command=self.zoom_in, width=26, height=26, font=("Segoe UI", 10, "bold"), fg_color="#313244", hover_color="#45475a", text_color="#89b4fa", corner_radius=4)
+        self.btn_zoom_in.pack(side="left", padx=2, pady=3)
         
-        self.btn_zoom_reset = ctk.CTkButton(self.zoom_frame, text="🔄 100%", command=self.zoom_reset, width=58, height=28, font=("Segoe UI", 9.5, "bold"), fg_color="#374151", hover_color="#4b5563", text_color="#e2e8f0", corner_radius=6)
-        self.btn_zoom_reset.pack(side="left", padx=(4, 8), pady=4)
+        self.btn_zoom_reset = ctk.CTkButton(self.zoom_frame, text="🔄 100%", command=self.zoom_reset, width=55, height=26, font=("Segoe UI", 9, "bold"), fg_color="#313244", hover_color="#45475a", text_color="#a6adc8", corner_radius=4)
+        self.btn_zoom_reset.pack(side="left", padx=(3, 6), pady=3)
         
         # Vertical Separator
-        self.lbl_sep = ctk.CTkLabel(self.zoom_frame, text="│", font=("Segoe UI", 12), text_color="#374151")
-        self.lbl_sep.pack(side="left", padx=2, pady=4)
+        self.lbl_sep = ctk.CTkLabel(self.zoom_frame, text="│", font=("Segoe UI", 11), text_color="#45475a")
+        self.lbl_sep.pack(side="left", padx=2, pady=3)
         
         # Pan controls
         self.btn_pan_mode = ctk.CTkButton(
             self.zoom_frame, 
             text="🖐️ Pan Tool", 
             command=self.toggle_pan_mode, 
-            width=88, 
-            height=28, 
-            font=("Segoe UI", 10, "bold"), 
-            fg_color="#374151", 
-            hover_color="#4b5563",
-            text_color="#e5e7eb",
-            corner_radius=6
+            width=85, 
+            height=26, 
+            font=("Segoe UI", 9.5, "bold"), 
+            fg_color="#313244", 
+            hover_color="#45475a",
+            text_color="#cdd6f4",
+            corner_radius=4
         )
-        self.btn_pan_mode.pack(side="left", padx=4, pady=4)
+        self.btn_pan_mode.pack(side="left", padx=3, pady=3)
         
-        self.btn_pan_left = ctk.CTkButton(self.zoom_frame, text="◄", command=lambda: self.pan_step("left"), width=28, height=28, font=("Segoe UI", 10, "bold"), fg_color="#1f2937", hover_color="#374151", text_color="#38bdf8", corner_radius=6)
-        self.btn_pan_left.pack(side="left", padx=1, pady=4)
+        self.btn_pan_left = ctk.CTkButton(self.zoom_frame, text="◀", command=lambda: self.pan_step("left"), width=26, height=26, font=("Segoe UI", 9.5, "bold"), fg_color="#313244", hover_color="#45475a", text_color="#89b4fa", corner_radius=4)
+        self.btn_pan_left.pack(side="left", padx=1, pady=3)
         
-        self.btn_pan_up = ctk.CTkButton(self.zoom_frame, text="▲", command=lambda: self.pan_step("up"), width=28, height=28, font=("Segoe UI", 10, "bold"), fg_color="#1f2937", hover_color="#374151", text_color="#38bdf8", corner_radius=6)
-        self.btn_pan_up.pack(side="left", padx=1, pady=4)
+        self.btn_pan_up = ctk.CTkButton(self.zoom_frame, text="▲", command=lambda: self.pan_step("up"), width=26, height=26, font=("Segoe UI", 9.5, "bold"), fg_color="#313244", hover_color="#45475a", text_color="#89b4fa", corner_radius=4)
+        self.btn_pan_up.pack(side="left", padx=1, pady=3)
         
-        self.btn_pan_down = ctk.CTkButton(self.zoom_frame, text="▼", command=lambda: self.pan_step("down"), width=28, height=28, font=("Segoe UI", 10, "bold"), fg_color="#1f2937", hover_color="#374151", text_color="#38bdf8", corner_radius=6)
-        self.btn_pan_down.pack(side="left", padx=1, pady=4)
+        self.btn_pan_down = ctk.CTkButton(self.zoom_frame, text="▼", command=lambda: self.pan_step("down"), width=26, height=26, font=("Segoe UI", 9.5, "bold"), fg_color="#313244", hover_color="#45475a", text_color="#89b4fa", corner_radius=4)
+        self.btn_pan_down.pack(side="left", padx=1, pady=3)
         
-        self.btn_pan_right = ctk.CTkButton(self.zoom_frame, text="►", command=lambda: self.pan_step("right"), width=28, height=28, font=("Segoe UI", 10, "bold"), fg_color="#1f2937", hover_color="#374151", text_color="#38bdf8", corner_radius=6)
-        self.btn_pan_right.pack(side="left", padx=(1, 5), pady=4)
+        self.btn_pan_right = ctk.CTkButton(self.zoom_frame, text="▶", command=lambda: self.pan_step("right"), width=26, height=26, font=("Segoe UI", 9.5, "bold"), fg_color="#313244", hover_color="#45475a", text_color="#89b4fa", corner_radius=4)
+        self.btn_pan_right.pack(side="left", padx=(1, 4), pady=3)
         
         # Right Section: Status Indicator Card
-        self.status_card = ctk.CTkFrame(self.bottom_frame, fg_color="#111827", corner_radius=8, border_width=1, border_color="#1f2937")
-        self.status_card.pack(side="right", padx=12, pady=7)
+        self.status_card = ctk.CTkFrame(self.bottom_frame, fg_color="#252536", corner_radius=6, border_width=1, border_color="#313244")
+        self.status_card.pack(side="right", padx=10, pady=5)
         
         self.lbl_status_icon = ctk.CTkLabel(self.status_card, text="🟢", font=("Segoe UI", 9))
-        self.lbl_status_icon.pack(side="left", padx=(8, 2), pady=4)
+        self.lbl_status_icon.pack(side="left", padx=(6, 2), pady=3)
         
-        self.lbl_status = ctk.CTkLabel(self.status_card, text="Please open a photo or folder to begin.", font=("Segoe UI", 10.5, "italic"), text_color="#cbd5e1")
-        self.lbl_status.pack(side="left", padx=(2, 10), pady=4)
+        self.lbl_status = ctk.CTkLabel(self.status_card, text="Please open a photo or folder to begin.", font=("Segoe UI", 10, "italic"), text_color="#a6adc8")
+        self.lbl_status.pack(side="left", padx=(2, 8), pady=3)
         
     # ----------------------------------------------------
     # Core Image Loading and UI Redrawing
@@ -612,6 +734,15 @@ class PhotoTaggerApp(ctk.CTk):
                 tt_bg = self.canvas.create_rectangle(tt_bbox[0]-6, tt_bbox[1]-3, tt_bbox[2]+6, tt_bbox[3]+3, fill="#2563eb", outline="#3b82f6", width=1, tags="overlay")
                 self.canvas.tag_lower(tt_bg, tooltip_txt)
 
+    def toggle_instructions(self):
+        self.instr_expanded = not getattr(self, 'instr_expanded', False)
+        if self.instr_expanded:
+            self.instr_desc.pack(fill="x", padx=10, pady=(0, 8))
+            self.btn_toggle_instr.configure(text="▲ Collapse")
+        else:
+            self.instr_desc.pack_forget()
+            self.btn_toggle_instr.configure(text="▼ Expand")
+
     def rebuild_sidebar(self):
         # 1. Clear existing face items
         for widget in self.faces_scroll.winfo_children():
@@ -628,16 +759,23 @@ class PhotoTaggerApp(ctk.CTk):
         # 2. Build entries for each face
         for idx, face in enumerate(self.faces):
             # Face card frame
-            card_frame = ctk.CTkFrame(self.faces_scroll, fg_color="#1f2937" if idx != self.selected_face_idx else "#374151", corner_radius=8)
-            card_frame.pack(fill="x", padx=5, pady=4)
+            is_selected = (idx == self.selected_face_idx)
+            card_frame = ctk.CTkFrame(
+                self.faces_scroll, 
+                fg_color="#313244" if is_selected else "#252536", 
+                border_width=1,
+                border_color="#89b4fa" if is_selected else "#313244",
+                corner_radius=6
+            )
+            card_frame.pack(fill="x", padx=4, pady=3)
             card_frame.grid_columnconfigure(0, weight=0) # Number label
             card_frame.grid_columnconfigure(1, weight=0) # Thumbnail
             card_frame.grid_columnconfigure(2, weight=1) # Entry field
             card_frame.grid_columnconfigure(3, weight=0) # Delete button
             
             # Number Label
-            lbl_num = ctk.CTkLabel(card_frame, text=f"{idx + 1}", font=("Segoe UI", 12, "bold"), width=25, text_color="#14b8a6")
-            lbl_num.grid(row=0, column=0, padx=(8, 2), pady=8)
+            lbl_num = ctk.CTkLabel(card_frame, text=f"{idx + 1}", font=("Segoe UI", 11, "bold"), width=22, text_color="#89b4fa")
+            lbl_num.grid(row=0, column=0, padx=(6, 2), pady=6)
             lbl_num.bind("<Button-1>", lambda event, i=idx: self.select_face(i))
             
             # Crop face thumbnail from original PIL image
@@ -679,17 +817,37 @@ class PhotoTaggerApp(ctk.CTk):
             
             # Name input field
             var = tk.StringVar(value=face['name'])
-            # We trace modifications to mark file as dirty
             var.trace_add("write", lambda *args, i=idx, v=var: self.on_name_changed(i, v))
             
-            entry = ctk.CTkEntry(card_frame, textvariable=var, placeholder_text="Enter name...", font=("Segoe UI", 12))
-            entry.grid(row=0, column=2, sticky="ew", padx=(0, 5), pady=8)
+            entry = ctk.CTkEntry(
+                card_frame, 
+                textvariable=var, 
+                placeholder_text="Enter name...", 
+                font=("Segoe UI", 11),
+                fg_color="#181825",
+                text_color="#cdd6f4",
+                border_width=1,
+                border_color="#45475a",
+                corner_radius=4
+            )
+            entry.grid(row=0, column=2, sticky="ew", padx=(0, 4), pady=6)
             entry.bind("<FocusIn>", lambda event, i=idx: self.select_face(i))
             self.face_entries.append(entry)
             
-            # Delete button
-            btn_delete = ctk.CTkButton(card_frame, text="✕", width=26, height=26, fg_color="#374151", hover_color="#ef4444", text_color="gray", font=("Segoe UI", 10, "bold"), command=lambda i=idx: self.delete_face(i))
-            btn_delete.grid(row=0, column=3, padx=8, pady=8)
+            # Delete button (Subtle Red Ghost style)
+            btn_delete = ctk.CTkButton(
+                card_frame, 
+                text="✕", 
+                width=24, 
+                height=24, 
+                fg_color="transparent", 
+                hover_color="#45475a", 
+                text_color="#f38ba8", 
+                font=("Segoe UI", 10, "bold"), 
+                corner_radius=4,
+                command=lambda i=idx: self.delete_face(i)
+            )
+            btn_delete.grid(row=0, column=3, padx=6, pady=6)
             
     # ----------------------------------------------------
     # Coordinate Mapping Helpers for Zoom & Pan
@@ -1202,11 +1360,11 @@ class PhotoTaggerApp(ctk.CTk):
     def toggle_pan_mode(self):
         self.is_pan_mode = not self.is_pan_mode
         if self.is_pan_mode:
-            self.btn_pan_mode.configure(fg_color="#0284c7", hover_color="#0369a1", text="🖐️ Pan Active")
+            self.btn_pan_mode.configure(fg_color="#0284c7", hover_color="#0369a1", text_color="#ffffff", text="🖐️ Pan Active")
             self.canvas.configure(cursor="fleur")
-            self.set_status("Pan Tool active: Left-Click & drag to pan photo, or click ⬅️⬆️⬇️➡️ arrows.")
+            self.set_status("Pan Tool active: Left-Click & drag to pan photo, or click ◀▲▼▶ arrows.")
         else:
-            self.btn_pan_mode.configure(fg_color="#4b5563", hover_color="#374151", text="🖐️ Pan Tool")
+            self.btn_pan_mode.configure(fg_color="#313244", hover_color="#45475a", text_color="#cdd6f4", text="🖐️ Pan Tool")
             self.canvas.configure(cursor="")
             self.set_status("Tagging Tool active: Click & drag on photo to tag faces.")
 
@@ -1622,7 +1780,7 @@ class Output2bEditorWindow(ctk.CTkToplevel):
     def __init__(self, parent):
         super().__init__(parent)
         self.parent = parent
-        self.title("Fine-Tune Output 2-b (Photo Tagger v.2.4)")
+        self.title("Fine-Tune Output 2-b (Photo Tagger v.2.5)")
         self.geometry("1200x900")
         
         self.zoom_factor = 1.0
