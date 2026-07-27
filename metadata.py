@@ -1,4 +1,8 @@
-import xml.etree.ElementTree as ET
+try:
+    import defusedxml.ElementTree as ET
+except ImportError:
+    import xml.etree.ElementTree as ET
+import html
 import re
 import os
 from PIL import Image
@@ -384,17 +388,19 @@ def write_interactive_html(image_path, tags, description, color_style=None, font
             w = max(0.0, min(100.0 - left, t['w'] * 100.0))
             h = max(0.0, min(100.0 - top, t['h'] * 100.0))
             
-            name = t['name'].strip() if t['name'] else str(idx + 1)
+            raw_name = t['name'].strip() if t['name'] else str(idx + 1)
+            name_escaped = html.escape(raw_name)
             
             tags_html += f"""
         <div class="face-tag" style="left: {left:.2f}%; top: {top:.2f}%; width: {w:.2f}%; height: {h:.2f}%;">
-            <div class="tooltip">{name}</div>
+            <div class="tooltip">{name_escaped}</div>
         </div>"""
 
         # Description banner HTML
         desc_banner_html = ""
         if description:
-            desc_banner_html = f'<div class="description-banner">Description: {description}</div>'
+            desc_escaped = html.escape(description)
+            desc_banner_html = f'<div class="description-banner">Description: {desc_escaped}</div>'
 
         # 3. Construct self-contained HTML
         html_content = f"""<!DOCTYPE html>
@@ -555,11 +561,12 @@ def write_interactive_svg(image_path, tags, description, color_style=None, font_
             w = t['w'] * width
             h = t['h'] * height
             
-            name = t['name'].strip() if t['name'] else str(idx + 1)
+            raw_name = t['name'].strip() if t['name'] else str(idx + 1)
+            name_escaped = html.escape(raw_name)
             
             rects_svg += f"""
   <rect class="face-box" x="{left:.1f}" y="{top:.1f}" width="{w:.1f}" height="{h:.1f}">
-    <title>{name}</title>
+    <title>{name_escaped}</title>
   </rect>"""
 
         # Description banner in SVG
@@ -567,10 +574,11 @@ def write_interactive_svg(image_path, tags, description, color_style=None, font_
         if description:
             banner_h = 40
             banner_y = height - banner_h
+            desc_escaped = html.escape(description)
             desc_banner_svg = f"""
   <g class="desc-banner">
     <rect x="0" y="{banner_y}" width="{width}" height="{banner_h}" fill="#1e293b" fill-opacity="0.85" />
-    <text x="{width // 2}" y="{banner_y + 24}" fill="#f1f5f9" font-family="Segoe UI, sans-serif" font-size="16" font-style="italic" text-anchor="middle">Description: {description}</text>
+    <text x="{width // 2}" y="{banner_y + 24}" fill="#f1f5f9" font-family="Segoe UI, sans-serif" font-size="16" font-style="italic" text-anchor="middle">Description: {desc_escaped}</text>
   </g>"""
 
         # 4. Construct SVG content
@@ -618,7 +626,7 @@ def draw_annotations_on_image(image_path, tags, output_path, draw_names=False, c
     """
     Reads the image, draws bounding boxes and labels for each tag, and saves the result.
     - If draw_names is False (Output 2-a: Numbered): draws face bounding boxes and numbers as-is.
-    - If draw_names is True (Output 2-b: Tagged v2.3): 
+    - If draw_names is True (Output 2-b: Tagged v2.4): 
       i) No rectangles around faces.
       ii) Non-overlapping number badges placed on person's body (or top corner of face if body not visible).
       iii) General Photo Description and Tagged names listed in a free space footer below the photo.
@@ -783,7 +791,7 @@ def draw_annotations_on_image(image_path, tags, output_path, draw_names=False, c
                 for idx, t in enumerate(tags):
                     box_i = all_face_boxes[idx]
                     fl_i, ft_i, fr_i, fb_i = box_i['fl'], box_i['ft'], box_i['fr'], box_i['fb']
-                    fw_i, fh_i, cx_i, cy_i = box_i['fw'], box_i['fh'], box_i['cx'], box_i['cy']
+                    fw_i, _, cx_i, cy_i = box_i['fw'], box_i['fh'], box_i['cx'], box_i['cy']
                     
                     num_str = str(idx + 1)
                     badge_r = uniform_badge_r
@@ -931,11 +939,75 @@ def draw_annotations_on_image(image_path, tags, output_path, draw_names=False, c
                             
                 desc_block_h = (header_h + (len(desc_lines) * line_h) + int(line_h * 0.5)) if desc_lines else 0
 
-                # Tagged Persons Grid
+                # Tagged Persons Grid Layout Pre-calculation
                 num_tags = len(tags)
-                num_cols = max(1, min(4, width // 220))
-                num_rows = math.ceil(num_tags / num_cols) if num_tags > 0 else 0
-                tags_block_h = (header_h + (num_rows * line_h)) if num_tags > 0 else 0
+                tag_layouts = []
+                row_heights = []
+                num_cols = 1
+                col_w = max_text_w
+                line_spacing = legend_font_size + 4
+
+                if num_tags > 0:
+                    avail_w = width - (pad_left * 2)
+                    num_cols = max(1, min(4, avail_w // 250))
+                    col_w = avail_w // num_cols
+                    
+                    for idx, t in enumerate(tags):
+                        num_str = str(idx + 1)
+                        raw_name = t.get('name', '').strip()
+                        name_str = raw_name if raw_name else "(Unnamed)"
+                        
+                        try:
+                            tb_n = draw.textbbox((0, 0), num_str, font=legend_font)
+                            tw_n = tb_n[2] - tb_n[0]
+                            th_n = tb_n[3] - tb_n[1]
+                            tx_off, ty_off = tb_n[0], tb_n[1]
+                        except AttributeError:
+                            tw_n, th_n = draw.textsize(num_str, font=legend_font)
+                            tx_off, ty_off = 0, 0
+                            
+                        pill_h = max(22, int(legend_font_size * 1.35))
+                        pill_w = max(pill_h, tw_n + 12)
+                        avail_name_w = col_w - pill_w - 18
+                        
+                        words = name_str.split(' ')
+                        name_lines = []
+                        curr_line = []
+                        for w in words:
+                            test = ' '.join(curr_line + [w]) if curr_line else w
+                            try:
+                                tb_test = draw.textbbox((0, 0), test, font=legend_font)
+                                tw_test = tb_test[2] - tb_test[0]
+                            except AttributeError:
+                                tw_test, _ = draw.textsize(test, font=legend_font)
+                            if tw_test <= avail_name_w or not curr_line:
+                                curr_line.append(w)
+                            else:
+                                name_lines.append(' '.join(curr_line))
+                                curr_line = [w]
+                        if curr_line:
+                            name_lines.append(' '.join(curr_line))
+                            
+                        tag_layouts.append({
+                            'num_str': num_str,
+                            'raw_name': raw_name,
+                            'name_lines': name_lines,
+                            'pill_w': pill_w,
+                            'pill_h': pill_h,
+                            'tw_n': tw_n,
+                            'th_n': th_n,
+                            'tx_off': tx_off,
+                            'ty_off': ty_off
+                        })
+                        
+                    num_rows = math.ceil(num_tags / num_cols)
+                    for r in range(num_rows):
+                        row_items = tag_layouts[r * num_cols : (r + 1) * num_cols]
+                        max_lines = max(len(item['name_lines']) for item in row_items) if row_items else 1
+                        r_h = max(line_h, max_lines * line_spacing + 8)
+                        row_heights.append(r_h)
+
+                tags_block_h = (header_h + sum(row_heights)) if num_tags > 0 else 0
                 
                 total_content_h = desc_block_h + tags_block_h
                 footer_h = (pad_top + total_content_h + pad_bottom) if total_content_h > 0 else 0
@@ -964,43 +1036,45 @@ def draw_annotations_on_image(image_path, tags, output_path, draw_names=False, c
                         fdraw.text((pad_left, current_y), "TAGGED PERSONS", font=legend_font, fill=box_color_rgba)
                         current_y += header_h
                         
-                        avail_w = width - (pad_left * 2)
-                        col_w = avail_w // num_cols
-                        pill_r = max(10, int(legend_font_size * 0.65))
-                        
-                        for idx, t in enumerate(tags):
+                        y_grid_start = current_y
+                        for idx, layout in enumerate(tag_layouts):
                             row = idx // num_cols
                             col = idx % num_cols
                             
-                            num_str = str(idx + 1)
-                            raw_name = t.get('name', '').strip()
-                            name_str = raw_name if raw_name else "(Unnamed)"
-                            
                             x_start = pad_left + col * col_w
-                            y_row = current_y + row * line_h
+                            y_row = y_grid_start + sum(row_heights[:row])
+                            r_h = row_heights[row]
                             
-                            pcx = x_start + pill_r
-                            pcy = y_row + line_h // 2
-                            fdraw.ellipse([pcx - pill_r, pcy - pill_r, pcx + pill_r, pcy + pill_r], 
-                                          fill=box_color_rgba, outline=(255, 255, 255, 255), width=1)
-                                          
+                            pill_w = layout['pill_w']
+                            pill_h = layout['pill_h']
+                            
+                            x_pill = x_start
+                            y_pill = y_row + (r_h - pill_h) // 2
+                            
                             try:
-                                tb = fdraw.textbbox((0, 0), num_str, font=legend_font)
-                                tw = tb[2] - tb[0]
-                                th = tb[3] - tb[1]
-                                tx_off, ty_off = tb[0], tb[1]
+                                fdraw.rounded_rectangle([x_pill, y_pill, x_pill + pill_w, y_pill + pill_h], 
+                                                        radius=pill_h // 2, 
+                                                        fill=box_color_rgba, 
+                                                        outline=(255, 255, 255, 255), 
+                                                        width=1)
                             except AttributeError:
-                                tw, th = fdraw.textsize(num_str, font=legend_font)
-                                tx_off, ty_off = 0, 0
+                                fdraw.rectangle([x_pill, y_pill, x_pill + pill_w, y_pill + pill_h], 
+                                                fill=box_color_rgba, 
+                                                outline=(255, 255, 255, 255), 
+                                                width=1)
                                 
-                            ptx = pcx - (tw / 2.0) - tx_off
-                            pty = pcy - (th / 2.0) - ty_off
-                            fdraw.text((ptx, pty), num_str, font=legend_font, fill=(255, 255, 255, 255))
+                            ptx = x_pill + (pill_w - layout['tw_n']) / 2.0 - layout['tx_off']
+                            pty = y_pill + (pill_h - layout['th_n']) / 2.0 - layout['ty_off']
+                            fdraw.text((ptx, pty), layout['num_str'], font=legend_font, fill=(255, 255, 255, 255))
                             
-                            name_x = pcx + pill_r + 10
-                            name_y = y_row + (line_h - legend_font_size) // 2
-                            name_color = (241, 245, 249, 255) if raw_name else (148, 163, 184, 255)
-                            fdraw.text((name_x, name_y), name_str, font=legend_font, fill=name_color)
+                            name_x = x_pill + pill_w + 10
+                            name_color = (241, 245, 249, 255) if layout['raw_name'] else (148, 163, 184, 255)
+                            total_name_h = len(layout['name_lines']) * line_spacing
+                            name_y_start = y_row + (r_h - total_name_h) // 2
+                            
+                            for l_idx, line_txt in enumerate(layout['name_lines']):
+                                line_y = name_y_start + l_idx * line_spacing
+                                fdraw.text((name_x, line_y), line_txt, font=legend_font, fill=name_color)
                 else:
                     final_output_img = annotated
                     

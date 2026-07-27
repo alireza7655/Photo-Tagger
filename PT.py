@@ -1,5 +1,4 @@
 import os
-import sys
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import customtkinter as ctk
@@ -25,7 +24,7 @@ class PhotoTaggerApp(ctk.CTk):
         super().__init__()
         
         # Window setup
-        self.title("Photo Tagger (Rev.2.3)")
+        self.title("Photo Tagger (v.2.4)")
         self.geometry("1300x850")
         self.minsize(1000, 700)
         
@@ -59,6 +58,7 @@ class PhotoTaggerApp(ctk.CTk):
         self.view_center_y = 0.5
         self.pan_start_x = 0
         self.pan_start_y = 0
+        self.is_pan_mode = False
         
         # Drawing boxes state
         self.drawing = False
@@ -80,6 +80,18 @@ class PhotoTaggerApp(ctk.CTk):
         self.face_images = []
         self.face_entries = []
         
+        # Load brand logo assets
+        self.app_logo_img = None
+        self.app_logo_small = None
+        logo_path = os.path.join(os.path.dirname(__file__), "app_logo.png")
+        if os.path.exists(logo_path):
+            try:
+                pil_logo = Image.open(logo_path)
+                self.app_logo_img = ctk.CTkImage(light_image=pil_logo, dark_image=pil_logo, size=(24, 24))
+                self.app_logo_small = ctk.CTkImage(light_image=pil_logo, dark_image=pil_logo, size=(16, 16))
+            except Exception as e:
+                print("Error loading app logo:", e)
+        
         # Build UI layout
         self.create_layout()
         
@@ -99,15 +111,34 @@ class PhotoTaggerApp(ctk.CTk):
         self.header_frame = ctk.CTkFrame(self, height=60, corner_radius=0)
         self.header_frame.grid(row=0, column=0, sticky="ew", padx=0, pady=0)
         
-        # Left header section: File actions
-        self.btn_open_file = ctk.CTkButton(self.header_frame, text="📁 Open Photo", command=self.open_file, width=120, font=("Segoe UI", 12, "bold"))
-        self.btn_open_file.pack(side="left", padx=15, pady=12)
+        # Left header section: Brand Logo & File actions
+        if hasattr(self, 'app_logo_img') and self.app_logo_img:
+            self.lbl_brand_logo = ctk.CTkLabel(self.header_frame, image=self.app_logo_img, text="")
+            self.lbl_brand_logo.pack(side="left", padx=(15, 6), pady=12)
+            
+        self.lbl_brand_title = ctk.CTkLabel(self.header_frame, text="Photo Tagger", font=("Segoe UI", 13, "bold"), text_color="#f8fafc")
+        self.lbl_brand_title.pack(side="left", padx=(0, 4), pady=12)
         
-        self.btn_open_folder = ctk.CTkButton(self.header_frame, text="📂 Open Folder", command=self.open_folder, width=120, font=("Segoe UI", 12, "bold"))
+        self.lbl_brand_version = ctk.CTkLabel(
+            self.header_frame, 
+            text="v.2.4", 
+            font=("Segoe UI", 9, "bold"), 
+            text_color="#ffffff", 
+            fg_color="#0ea5e9", 
+            corner_radius=6, 
+            width=36, 
+            height=18
+        )
+        self.lbl_brand_version.pack(side="left", padx=(0, 15), pady=12)
+        
+        self.btn_open_file = ctk.CTkButton(self.header_frame, text="📁 Open Photo", command=self.open_file, width=115, font=("Segoe UI", 12, "bold"))
+        self.btn_open_file.pack(side="left", padx=5, pady=12)
+        
+        self.btn_open_folder = ctk.CTkButton(self.header_frame, text="📂 Open Folder", command=self.open_folder, width=115, font=("Segoe UI", 12, "bold"))
         self.btn_open_folder.pack(side="left", padx=5, pady=12)
         
-        self.btn_save = ctk.CTkButton(self.header_frame, text="💾 Save Tags", command=self.save_current, width=120, fg_color="#10b981", hover_color="#059669", font=("Segoe UI", 12, "bold"))
-        self.btn_save.pack(side="left", padx=15, pady=12)
+        self.btn_save = ctk.CTkButton(self.header_frame, text="💾 Save Tags", command=self.save_current, width=115, fg_color="#10b981", hover_color="#059669", font=("Segoe UI", 12, "bold"))
+        self.btn_save.pack(side="left", padx=10, pady=12)
         
         # Output Format Selector
         self.lbl_format = ctk.CTkLabel(self.header_frame, text="Output Format:", font=("Segoe UI", 11, "bold"))
@@ -116,12 +147,12 @@ class PhotoTaggerApp(ctk.CTk):
         self.combo_format = ctk.CTkComboBox(self.header_frame, values=["Original", "JPEG", "PNG", "WebP"], width=100, font=("Segoe UI", 11))
         self.combo_format.pack(side="left", padx=(0, 15), pady=12)
         
-        # Export Rendered Button
+        # Export Files Button (Generates Output 1a, 1b, 2a, 2b)
         self.btn_export_annotated = ctk.CTkButton(
             self.header_frame, 
-            text="🎨 Export Rendered", 
+            text="🎨 Export Files", 
             command=self.export_annotated, 
-            width=140, 
+            width=135, 
             fg_color="#a855f7", 
             hover_color="#9333ea", 
             font=("Segoe UI", 12, "bold")
@@ -213,8 +244,9 @@ class PhotoTaggerApp(ctk.CTk):
             "4. Type names next to face crops on the right.\n"
             "5. Click & drag on image to manually add boxes.\n"
             "6. Enter a general photo description if desired.\n"
-            "7. Click 'Save Tags' to save metadata & export files.\n"
-            "8. Click 'Fine-Tune' to adjust Output 2-b badges.\n\n"
+            "7. Click 'Save Tags' to write EXIF/XMP metadata to photo.\n"
+            "8. Click 'Export Files' to generate HTML/SVG/Rendered outputs.\n"
+            "9. Click 'Fine-Tune' to adjust Output 2-b badges.\n\n"
             "💡 Pro-Tips:\n"
             "• Zoom: Scroll MouseWheel over image.\n"
             "• Pan: Right-Click and drag zoomed image.\n"
@@ -273,45 +305,104 @@ class PhotoTaggerApp(ctk.CTk):
         self.faces_scroll = ctk.CTkScrollableFrame(self.sidebar_frame, fg_color="transparent")
         self.faces_scroll.grid(row=5, column=0, sticky="nsew", padx=5, pady=(0, 5))
         
-        # Sidebar: Developer Credit with Rev.2.3
-        self.credit_label = ctk.CTkLabel(self.sidebar_frame, text="Created by Alireza Mostaghasi (2026) | Rev.2.3", font=("Segoe UI", 10, "italic"), text_color="#6b7280")
-        self.credit_label.grid(row=6, column=0, sticky="ew", padx=15, pady=8)
+        # Sidebar Credit Card with logo
+        self.credit_card = ctk.CTkFrame(self.sidebar_frame, fg_color="#1e293b", corner_radius=8, border_width=1, border_color="#334155")
+        self.credit_card.grid(row=6, column=0, sticky="ew", padx=15, pady=(5, 12))
+        
+        if hasattr(self, 'app_logo_small') and self.app_logo_small:
+            self.lbl_credit_icon = ctk.CTkLabel(self.credit_card, image=self.app_logo_small, text="")
+            self.lbl_credit_icon.pack(side="left", padx=(8, 4), pady=6)
+            
+        self.credit_label = ctk.CTkLabel(
+            self.credit_card, 
+            text="Created by Alireza Mostaghasi (2026) | v.2.4", 
+            font=("Segoe UI", 10, "bold"), 
+            text_color="#94a3b8"
+        )
+        self.credit_label.pack(side="left", padx=(0, 8), pady=6)
         
         # ----------------------------------------------------
-        # 3. Bottom Control & Navigation
+        # 3. Bottom Control & Navigation Bar (Agency-Grade Design Layout)
         # ----------------------------------------------------
-        self.bottom_frame = ctk.CTkFrame(self, height=45, corner_radius=0)
+        self.bottom_frame = ctk.CTkFrame(self, height=54, corner_radius=0, fg_color="#090d16", border_width=1, border_color="#1e293b")
         self.bottom_frame.grid(row=2, column=0, sticky="ew", padx=0, pady=0)
         
-        # Navigation buttons
-        self.btn_prev = ctk.CTkButton(self.bottom_frame, text="◀ Previous", command=self.prev_image, width=90, font=("Segoe UI", 11, "bold"))
-        self.btn_prev.pack(side="left", padx=15, pady=8)
+        # Left Section: Photo Navigation Card
+        self.nav_card = ctk.CTkFrame(self.bottom_frame, fg_color="#111827", corner_radius=8, border_width=1, border_color="#1f2937")
+        self.nav_card.pack(side="left", padx=12, pady=7)
         
-        self.lbl_counter = ctk.CTkLabel(self.bottom_frame, text="No Photos Loaded", font=("Segoe UI", 11, "bold"))
-        self.lbl_counter.pack(side="left", padx=10, pady=8)
+        self.btn_prev = ctk.CTkButton(self.nav_card, text="◀ Prev", command=self.prev_image, width=68, height=28, font=("Segoe UI", 11, "bold"), fg_color="#1f2937", hover_color="#374151", text_color="#f3f4f6", corner_radius=6)
+        self.btn_prev.pack(side="left", padx=4, pady=4)
         
-        self.btn_next = ctk.CTkButton(self.bottom_frame, text="Next ▶", command=self.next_image, width=90, font=("Segoe UI", 11, "bold"))
-        self.btn_next.pack(side="left", padx=10, pady=8)
+        self.counter_frame = ctk.CTkFrame(self.nav_card, fg_color="#0f172a", corner_radius=6, border_width=1, border_color="#1e293b")
+        self.counter_frame.pack(side="left", padx=4, pady=4)
         
-        # Zoom controls (centered in the bottom bar)
-        self.zoom_frame = ctk.CTkFrame(self.bottom_frame, fg_color="transparent")
-        self.zoom_frame.pack(side="left", expand=True, anchor="center")
+        self.lbl_counter = ctk.CTkLabel(self.counter_frame, text="No Photos Loaded", font=("Segoe UI", 11, "bold"), text_color="#e2e8f0", width=120)
+        self.lbl_counter.pack(padx=8, pady=2)
         
-        self.btn_zoom_out = ctk.CTkButton(self.zoom_frame, text="➖", command=self.zoom_out, width=32, height=28, font=("Segoe UI", 12, "bold"))
-        self.btn_zoom_out.pack(side="left", padx=5)
+        self.btn_next = ctk.CTkButton(self.nav_card, text="Next ▶", command=self.next_image, width=68, height=28, font=("Segoe UI", 11, "bold"), fg_color="#1f2937", hover_color="#374151", text_color="#f3f4f6", corner_radius=6)
+        self.btn_next.pack(side="left", padx=4, pady=4)
         
-        self.lbl_zoom_level = ctk.CTkLabel(self.zoom_frame, text="Zoom: 100%", font=("Segoe UI", 11, "bold"), width=80)
-        self.lbl_zoom_level.pack(side="left", padx=5)
+        # Center Section: Viewport Controls Toolbar Card (Zoom & Pan)
+        self.zoom_frame = ctk.CTkFrame(self.bottom_frame, fg_color="#111827", corner_radius=8, border_width=1, border_color="#1f2937")
+        self.zoom_frame.pack(side="left", expand=True, anchor="center", pady=7)
         
-        self.btn_zoom_in = ctk.CTkButton(self.zoom_frame, text="➕", command=self.zoom_in, width=32, height=28, font=("Segoe UI", 12, "bold"))
-        self.btn_zoom_in.pack(side="left", padx=5)
+        # Zoom controls
+        self.btn_zoom_out = ctk.CTkButton(self.zoom_frame, text="➖", command=self.zoom_out, width=28, height=28, font=("Segoe UI", 11, "bold"), fg_color="#1f2937", hover_color="#374151", text_color="#38bdf8", corner_radius=6)
+        self.btn_zoom_out.pack(side="left", padx=(5, 2), pady=4)
         
-        self.btn_zoom_reset = ctk.CTkButton(self.zoom_frame, text="🔄 Reset", command=self.zoom_reset, width=60, height=28, font=("Segoe UI", 10, "bold"), fg_color="#4b5563", hover_color="#374151")
-        self.btn_zoom_reset.pack(side="left", padx=(10, 5))
+        self.zoom_pill = ctk.CTkFrame(self.zoom_frame, fg_color="#0f172a", corner_radius=6, border_width=1, border_color="#1e293b")
+        self.zoom_pill.pack(side="left", padx=2, pady=4)
         
-        # Right aligned Status label
-        self.lbl_status = ctk.CTkLabel(self.bottom_frame, text="Please open a photo or folder to begin.", font=("Segoe UI", 11, "italic"), text_color="gray")
-        self.lbl_status.pack(side="right", padx=15, pady=8)
+        self.lbl_zoom_level = ctk.CTkLabel(self.zoom_pill, text="Zoom: 100%", font=("Segoe UI", 11, "bold"), text_color="#38bdf8", width=75)
+        self.lbl_zoom_level.pack(padx=4, pady=2)
+        
+        self.btn_zoom_in = ctk.CTkButton(self.zoom_frame, text="➕", command=self.zoom_in, width=28, height=28, font=("Segoe UI", 11, "bold"), fg_color="#1f2937", hover_color="#374151", text_color="#38bdf8", corner_radius=6)
+        self.btn_zoom_in.pack(side="left", padx=2, pady=4)
+        
+        self.btn_zoom_reset = ctk.CTkButton(self.zoom_frame, text="🔄 100%", command=self.zoom_reset, width=58, height=28, font=("Segoe UI", 9.5, "bold"), fg_color="#374151", hover_color="#4b5563", text_color="#e2e8f0", corner_radius=6)
+        self.btn_zoom_reset.pack(side="left", padx=(4, 8), pady=4)
+        
+        # Vertical Separator
+        self.lbl_sep = ctk.CTkLabel(self.zoom_frame, text="│", font=("Segoe UI", 12), text_color="#374151")
+        self.lbl_sep.pack(side="left", padx=2, pady=4)
+        
+        # Pan controls
+        self.btn_pan_mode = ctk.CTkButton(
+            self.zoom_frame, 
+            text="🖐️ Pan Tool", 
+            command=self.toggle_pan_mode, 
+            width=88, 
+            height=28, 
+            font=("Segoe UI", 10, "bold"), 
+            fg_color="#374151", 
+            hover_color="#4b5563",
+            text_color="#e5e7eb",
+            corner_radius=6
+        )
+        self.btn_pan_mode.pack(side="left", padx=4, pady=4)
+        
+        self.btn_pan_left = ctk.CTkButton(self.zoom_frame, text="◄", command=lambda: self.pan_step("left"), width=28, height=28, font=("Segoe UI", 10, "bold"), fg_color="#1f2937", hover_color="#374151", text_color="#38bdf8", corner_radius=6)
+        self.btn_pan_left.pack(side="left", padx=1, pady=4)
+        
+        self.btn_pan_up = ctk.CTkButton(self.zoom_frame, text="▲", command=lambda: self.pan_step("up"), width=28, height=28, font=("Segoe UI", 10, "bold"), fg_color="#1f2937", hover_color="#374151", text_color="#38bdf8", corner_radius=6)
+        self.btn_pan_up.pack(side="left", padx=1, pady=4)
+        
+        self.btn_pan_down = ctk.CTkButton(self.zoom_frame, text="▼", command=lambda: self.pan_step("down"), width=28, height=28, font=("Segoe UI", 10, "bold"), fg_color="#1f2937", hover_color="#374151", text_color="#38bdf8", corner_radius=6)
+        self.btn_pan_down.pack(side="left", padx=1, pady=4)
+        
+        self.btn_pan_right = ctk.CTkButton(self.zoom_frame, text="►", command=lambda: self.pan_step("right"), width=28, height=28, font=("Segoe UI", 10, "bold"), fg_color="#1f2937", hover_color="#374151", text_color="#38bdf8", corner_radius=6)
+        self.btn_pan_right.pack(side="left", padx=(1, 5), pady=4)
+        
+        # Right Section: Status Indicator Card
+        self.status_card = ctk.CTkFrame(self.bottom_frame, fg_color="#111827", corner_radius=8, border_width=1, border_color="#1f2937")
+        self.status_card.pack(side="right", padx=12, pady=7)
+        
+        self.lbl_status_icon = ctk.CTkLabel(self.status_card, text="🟢", font=("Segoe UI", 9))
+        self.lbl_status_icon.pack(side="left", padx=(8, 2), pady=4)
+        
+        self.lbl_status = ctk.CTkLabel(self.status_card, text="Please open a photo or folder to begin.", font=("Segoe UI", 10.5, "italic"), text_color="#cbd5e1")
+        self.lbl_status.pack(side="left", padx=(2, 10), pady=4)
         
     # ----------------------------------------------------
     # Core Image Loading and UI Redrawing
@@ -820,6 +911,10 @@ class PhotoTaggerApp(ctk.CTk):
         if not self.original_pil_image:
             return
             
+        if self.is_pan_mode:
+            self.on_pan_press(event)
+            return
+            
         # Check if clicked on a resize handle first
         if hasattr(self, 'hovered_resize_handle') and self.hovered_resize_handle is not None:
             self.resizing = True
@@ -848,12 +943,30 @@ class PhotoTaggerApp(ctk.CTk):
                 self.draw_start_y = event.y
                 self.draw_current_x = event.x
                 self.draw_current_y = event.y
-                self.selected_face_idx = None
-                self.rebuild_sidebar()
-                self.draw_canvas()
+                
+                # Deselect face without heavy sidebar rebuild during drag initialization
+                if self.selected_face_idx is not None:
+                    self.selected_face_idx = None
+                    self.draw_canvas()
+                
+                # Delete any old drag rect items and create high-contrast live manual drag cadre
+                self.canvas.delete("manual_drag_rect")
+                self.drag_rect_bg = self.canvas.create_rectangle(
+                    event.x, event.y, event.x, event.y,
+                    outline="#000000", width=4, tags="manual_drag_rect"
+                )
+                self.drag_rect_fg = self.canvas.create_rectangle(
+                    event.x, event.y, event.x, event.y,
+                    outline="#38bdf8", width=2, tags="manual_drag_rect"
+                )
+                self.canvas.tag_raise("manual_drag_rect")
                 
     def on_canvas_drag(self, event):
         if not self.original_pil_image:
+            return
+            
+        if self.is_pan_mode:
+            self.on_pan_drag(event)
             return
             
         if hasattr(self, 'resizing') and self.resizing:
@@ -875,17 +988,26 @@ class PhotoTaggerApp(ctk.CTk):
         self.draw_current_x = max(self.pad_x, min(self.pad_x + display_w, event.x))
         self.draw_current_y = max(self.pad_y, min(self.pad_y + display_h, event.y))
         
-        # Update or create the manual drag rectangle directly without lag
-        if hasattr(self, 'drag_rect_id') and self.drag_rect_id is not None:
-            self.canvas.coords(self.drag_rect_id, self.draw_start_x, self.draw_start_y, self.draw_current_x, self.draw_current_y)
-        else:
-            self.drag_rect_id = self.canvas.create_rectangle(
-                self.draw_start_x, self.draw_start_y,
-                self.draw_current_x, self.draw_current_y,
-                outline="#f97316", width=2, dash=(4, 4), tags="overlay"
+        # Ensure manual drag rect items exist and update coordinates smoothly without lag
+        if not hasattr(self, 'drag_rect_fg') or self.drag_rect_fg is None or not self.canvas.find_withtag("manual_drag_rect"):
+            self.drag_rect_bg = self.canvas.create_rectangle(
+                self.draw_start_x, self.draw_start_y, self.draw_current_x, self.draw_current_y,
+                outline="#000000", width=4, tags="manual_drag_rect"
             )
+            self.drag_rect_fg = self.canvas.create_rectangle(
+                self.draw_start_x, self.draw_start_y, self.draw_current_x, self.draw_current_y,
+                outline="#38bdf8", width=2, tags="manual_drag_rect"
+            )
+        else:
+            self.canvas.coords(self.drag_rect_bg, self.draw_start_x, self.draw_start_y, self.draw_current_x, self.draw_current_y)
+            self.canvas.coords(self.drag_rect_fg, self.draw_start_x, self.draw_start_y, self.draw_current_x, self.draw_current_y)
+            
+        self.canvas.tag_raise("manual_drag_rect")
         
     def on_canvas_release(self, event):
+        if self.is_pan_mode:
+            self.on_pan_release(event)
+            return
         if hasattr(self, 'resizing') and self.resizing:
             self.resizing = False
             self.rebuild_sidebar()
@@ -897,10 +1019,10 @@ class PhotoTaggerApp(ctk.CTk):
             
         self.drawing = False
         
-        # Delete temporary drag rectangle
-        if hasattr(self, 'drag_rect_id') and self.drag_rect_id is not None:
-            self.canvas.delete(self.drag_rect_id)
-            self.drag_rect_id = None
+        # Delete temporary manual drag cadre
+        self.canvas.delete("manual_drag_rect")
+        self.drag_rect_bg = None
+        self.drag_rect_fg = None
             
         # Calculate width and height in pixels
         w_px = abs(self.draw_current_x - self.draw_start_x)
@@ -1076,6 +1198,48 @@ class PhotoTaggerApp(ctk.CTk):
         # Mock delta for Linux scrolling
         event.delta = 120 if scroll_up else -120
         self.on_mouse_zoom(event)
+
+    def toggle_pan_mode(self):
+        self.is_pan_mode = not self.is_pan_mode
+        if self.is_pan_mode:
+            self.btn_pan_mode.configure(fg_color="#0284c7", hover_color="#0369a1", text="🖐️ Pan Active")
+            self.canvas.configure(cursor="fleur")
+            self.set_status("Pan Tool active: Left-Click & drag to pan photo, or click ⬅️⬆️⬇️➡️ arrows.")
+        else:
+            self.btn_pan_mode.configure(fg_color="#4b5563", hover_color="#374151", text="🖐️ Pan Tool")
+            self.canvas.configure(cursor="")
+            self.set_status("Tagging Tool active: Click & drag on photo to tag faces.")
+
+    def pan_step(self, direction):
+        if not self.original_pil_image:
+            return
+        step = 0.08 / max(1.0, float(self.zoom_factor))
+        if direction == "left":
+            self.view_center_x -= step
+        elif direction == "right":
+            self.view_center_x += step
+        elif direction == "up":
+            self.view_center_y -= step
+        elif direction == "down":
+            self.view_center_y += step
+            
+        # Clamp view center so crop box stays inside image
+        canvas_w = max(50, self.canvas.winfo_width())
+        canvas_h = max(50, self.canvas.winfo_height())
+        orig_w, orig_h = self.original_pil_image.size
+        base_scale = min(canvas_w / orig_w, canvas_h / orig_h)
+        scale = base_scale * self.zoom_factor
+        
+        crop_w = min(orig_w, canvas_w / scale)
+        crop_h = min(orig_h, canvas_h / scale)
+        
+        half_visible_w_norm = (crop_w / 2.0) / orig_w
+        self.view_center_x = max(half_visible_w_norm, min(1.0 - half_visible_w_norm, self.view_center_x))
+        
+        half_visible_h_norm = (crop_h / 2.0) / orig_h
+        self.view_center_y = max(half_visible_h_norm, min(1.0 - half_visible_h_norm, self.view_center_y))
+        
+        self.draw_canvas()
 
     def on_pan_press(self, event):
         if not self.original_pil_image:
@@ -1292,14 +1456,6 @@ class PhotoTaggerApp(ctk.CTk):
             success = write_photo_metadata(target_path, self.faces, self.description)
             
         if success:
-            # Fetch style settings
-            color_style = self.get_selected_color_style()
-            font_size_style = self.get_selected_font_size_style()
-            
-            # Also write the interactive HTML and SVG versions next to it
-            write_interactive_html(target_path, self.faces, self.description, color_style, font_size_style)
-            write_interactive_svg(target_path, self.faces, self.description, color_style, font_size_style)
-            
             old_path = self.current_image_path
             
             if is_conversion:
@@ -1316,8 +1472,8 @@ class PhotoTaggerApp(ctk.CTk):
                     self.image_list[self.current_image_idx] = target_path
             
             self.is_modified = False
-            self.set_status("Metadata, HTML and SVG successfully saved!")
-            messagebox.showinfo("Saved", "Metadata successfully saved, and interactive HTML/SVG versions created!")
+            self.set_status("Metadata successfully saved to image!")
+            messagebox.showinfo("Saved", f"Metadata successfully saved to {os.path.basename(target_path)}!")
             
             # Rebuild sidebar and reload displays
             self.rebuild_sidebar()
@@ -1359,21 +1515,27 @@ class PhotoTaggerApp(ctk.CTk):
         color_style = self.get_selected_color_style()
         font_size_style = self.get_selected_font_size_style()
         
-        # 1. Export Numbered (draw_names = False)
+        # 1. Export Output 2-a Numbered (draw_names = False)
         success_num = draw_annotations_on_image(self.current_image_path, self.faces, numbered_path, draw_names=False, color_style=color_style, font_size_style=font_size_style, description=self.description)
         
-        # 2. Export Tagged (draw_names = True)
+        # 2. Export Output 2-b Tagged (draw_names = True)
         success_tag = draw_annotations_on_image(self.current_image_path, self.faces, tagged_path, draw_names=True, color_style=color_style, font_size_style=font_size_style, description=self.description)
         
+        # 3. Export Output 1-a (Interactive HTML) & Output 1-b (Interactive SVG)
+        success_html = write_interactive_html(self.current_image_path, self.faces, self.description, color_style=color_style, font_size_style=font_size_style)
+        success_svg = write_interactive_svg(self.current_image_path, self.faces, self.description, color_style=color_style, font_size_style=font_size_style)
+        
         if success_num and success_tag:
-            self.set_status("Annotated images exported successfully!")
+            self.set_status("Annotated images & HTML/SVG exported successfully!")
             messagebox.showinfo("Export Success", 
-                                f"Successfully exported rendered images:\n\n"
-                                f"1. Numbered: {os.path.basename(numbered_path)}\n"
-                                f"2. Tagged: {os.path.basename(tagged_path)}")
+                                f"Successfully exported all outputs with selected color & font size:\n\n"
+                                f"• Output 1-a (Interactive HTML): {os.path.basename(os.path.splitext(self.current_image_path)[0] + '_interactive.html')}\n"
+                                f"• Output 1-b (Interactive SVG): {os.path.basename(os.path.splitext(self.current_image_path)[0] + '_interactive.svg')}\n"
+                                f"• Output 2-a (Numbered Image): {os.path.basename(numbered_path)}\n"
+                                f"• Output 2-b (Tagged Image): {os.path.basename(tagged_path)}")
         else:
-            self.set_status("Error exporting annotated images.")
-            messagebox.showerror("Export Error", "Failed to export one or both annotated images.")
+            self.set_status("Error exporting annotated files.")
+            messagebox.showerror("Export Error", "Failed to export one or more files.")
             
     def open_file(self):
         file_path = filedialog.askopenfilename(
@@ -1397,7 +1559,7 @@ class PhotoTaggerApp(ctk.CTk):
         if folder_path:
             # Gather all supported images
             self.image_list = []
-            for root, dirs, files in os.walk(folder_path):
+            for root, _, files in os.walk(folder_path):
                 for f in files:
                     if f.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
                         self.image_list.append(os.path.join(root, f))
@@ -1435,6 +1597,13 @@ class PhotoTaggerApp(ctk.CTk):
             
     def set_status(self, text):
         self.lbl_status.configure(text=text)
+        if hasattr(self, 'lbl_status_icon'):
+            if "Error" in text or "Failed" in text:
+                self.lbl_status_icon.configure(text="🔴")
+            elif "Saving" in text or "Running" in text or "Exporting" in text:
+                self.lbl_status_icon.configure(text="🟡")
+            else:
+                self.lbl_status_icon.configure(text="🟢")
         self.update_idletasks()
         
     def open_editor_2b(self):
@@ -1453,7 +1622,7 @@ class Output2bEditorWindow(ctk.CTkToplevel):
     def __init__(self, parent):
         super().__init__(parent)
         self.parent = parent
-        self.title("Fine-Tune Output 2-b (Photo Tagger v2.3)")
+        self.title("Fine-Tune Output 2-b (Photo Tagger v.2.4)")
         self.geometry("1200x900")
         
         self.zoom_factor = 1.0
@@ -1553,39 +1722,51 @@ class Output2bEditorWindow(ctk.CTkToplevel):
         self.canvas.bind("<Button-4>", lambda e: self.on_mouse_zoom_linux(e, True))
         self.canvas.bind("<Button-5>", lambda e: self.on_mouse_zoom_linux(e, False))
         
-        # 3. Bottom Action Bar
-        self.bottom_frame = ctk.CTkFrame(self, height=50, corner_radius=0)
+        # 3. Bottom Action Bar (Agency-Grade Design Layout)
+        self.bottom_frame = ctk.CTkFrame(self, height=54, corner_radius=0, fg_color="#090d16", border_width=1, border_color="#1e293b")
         self.bottom_frame.grid(row=2, column=0, sticky="ew", padx=0, pady=0)
         
+        # Left Section: Instructions & Hint Card
+        self.hint_card = ctk.CTkFrame(self.bottom_frame, fg_color="#111827", corner_radius=8, border_width=1, border_color="#1f2937")
+        self.hint_card.pack(side="left", padx=12, pady=7)
+        
         lbl_hint = ctk.CTkLabel(
-            self.bottom_frame, 
-            text="💡 Scroll MouseWheel to Zoom • Right-Click Drag to Pan • Left-Click Drag any badge to move it", 
-            font=("Segoe UI", 11, "italic"), 
-            text_color="#94a3b8"
+            self.hint_card, 
+            text="💡 Scroll MouseWheel to Zoom • Right-Click Drag to Pan • Left-Click Drag any badge to fine-tune position", 
+            font=("Segoe UI", 10.5, "italic"), 
+            text_color="#cbd5e1"
         )
-        lbl_hint.pack(side="left", padx=15, pady=10)
+        lbl_hint.pack(side="left", padx=10, pady=4)
+        
+        # Right Section: Action Buttons Card
+        self.actions_card = ctk.CTkFrame(self.bottom_frame, fg_color="#111827", corner_radius=8, border_width=1, border_color="#1f2937")
+        self.actions_card.pack(side="right", padx=12, pady=7)
         
         btn_close = ctk.CTkButton(
-            self.bottom_frame, 
+            self.actions_card, 
             text="Cancel", 
             command=self.destroy, 
-            width=90, 
+            width=85, 
+            height=28,
             fg_color="#ef4444", 
             hover_color="#dc2626", 
-            font=("Segoe UI", 11, "bold")
+            font=("Segoe UI", 11, "bold"),
+            corner_radius=6
         )
-        btn_close.pack(side="right", padx=15, pady=10)
+        btn_close.pack(side="right", padx=4, pady=4)
         
         btn_export = ctk.CTkButton(
-            self.bottom_frame, 
-            text="💾 Save and Export Output", 
+            self.actions_card, 
+            text="💾 Save & Export Output 2-b", 
             command=self.save_and_export, 
-            width=190, 
+            width=185, 
+            height=28,
             fg_color="#10b981", 
             hover_color="#059669", 
-            font=("Segoe UI", 12, "bold")
+            font=("Segoe UI", 11, "bold"),
+            corner_radius=6
         )
-        btn_export.pack(side="right", padx=5, pady=10)
+        btn_export.pack(side="right", padx=4, pady=4)
         
         self.tk_preview = None
         self.scale = 1.0
