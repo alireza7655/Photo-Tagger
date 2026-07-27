@@ -83,7 +83,8 @@ class PhotoTaggerApp(ctk.CTk):
         # Load brand logo assets
         self.app_logo_img = None
         self.app_logo_small = None
-        logo_path = os.path.join(os.path.dirname(__file__), "app_logo.png")
+        base_dir = getattr(sys, '_MEIPASS', os.path.dirname(__file__))
+        logo_path = os.path.join(base_dir, "app_logo.png")
         if os.path.exists(logo_path):
             try:
                 pil_logo = Image.open(logo_path)

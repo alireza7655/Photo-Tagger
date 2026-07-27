@@ -65,6 +65,7 @@ __pypackages__/
 build/
 develop-eggs/
 dist/
+!dist/PT.exe
 downloads/
 eggs/
 .eggs/
@@ -81,6 +82,7 @@ share/python-wheels/
 MANIFEST
 *.manifest
 *.spec
+!PT.spec
 
 # ==========================================
 # 7. Testing, Coverage & Code Quality Caches
