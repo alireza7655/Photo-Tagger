@@ -1,14 +1,21 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('app_logo.png', '.')]
+datas = [('app_logo.png', '.'), ('app_icon.ico', '.'), ('VERSION', '.'), ('assets', 'assets')]
 binaries = []
-hiddenimports = []
+hiddenimports = ['arabic_reshaper', 'bidi', 'bidi.algorithm']
+
 tmp_ret = collect_all('customtkinter')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+
 tmp_ret = collect_all('cv2')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
+tmp_ret = collect_all('arabic_reshaper')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+
+tmp_ret = collect_all('bidi')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 a = Analysis(
     ['PT.py'],
@@ -31,7 +38,8 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='PT',
+    name='PhotoTagger_v3.0.0',
+    icon='app_icon.ico',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -45,3 +53,4 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
 )
+

@@ -5,6 +5,7 @@ except ImportError:
 import html
 import re
 import os
+import shutil
 from PIL import Image
 
 # Namespace registry for ElementTree to use correct prefixes
@@ -327,16 +328,39 @@ def write_photo_metadata(image_path, tags, description, original_path=None):
             # Save the image to the temp path
             save_img.save(temp_path, **save_params)
             
-        # Replace target path with the newly tagged file
+        # Safely replace target path with newly saved file using atomic replacement
         if os.path.exists(temp_path):
-            if os.path.exists(image_path) and os.path.abspath(image_path) != os.path.abspath(load_path):
-                # If we are converting formats to a different file name, don't remove the original source file!
+            backup_path = image_path + ".bak"
+            has_backup = False
+            try:
                 if os.path.exists(image_path):
-                    os.remove(image_path)
-            elif os.path.exists(image_path):
-                os.remove(image_path)
-            os.rename(temp_path, image_path)
-            return True
+                    try:
+                        shutil.copy2(image_path, backup_path)
+                        has_backup = True
+                    except Exception:
+                        pass
+                
+                os.replace(temp_path, image_path)
+                
+                if has_backup and os.path.exists(backup_path):
+                    try:
+                        os.remove(backup_path)
+                    except Exception:
+                        pass
+                return True
+            except Exception as replace_err:
+                if has_backup and not os.path.exists(image_path) and os.path.exists(backup_path):
+                    try:
+                        os.replace(backup_path, image_path)
+                    except Exception:
+                        pass
+                raise replace_err
+            finally:
+                if os.path.exists(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except Exception:
+                        pass
     except Exception as e:
         print(f"Error saving metadata for {image_path}: {e}")
         # Clean up temp file if exists
@@ -347,13 +371,55 @@ def write_photo_metadata(image_path, tags, description, original_path=None):
             pass
         return False
 
-def write_interactive_html(image_path, tags, description, color_style=None, font_size_style=None):
+def resolve_font_files_for_family(font_family: str = "Segoe UI"):
+    """
+    Returns prioritized font file paths for the requested font family with
+    tested Windows system fallbacks and Persian/Arabic script coverage.
+    Supported choices: 'Segoe UI' (default), 'Tahoma', 'Arial'.
+    """
+    family = (font_family or "Segoe UI").strip().lower()
+    if "tahoma" in family:
+        return [
+            "C:\\Windows\\Fonts\\tahomabd.ttf",
+            "C:\\Windows\\Fonts\\tahoma.ttf",
+            "tahomabd.ttf",
+            "tahoma.ttf",
+            "C:\\Windows\\Fonts\\segoeuib.ttf",
+            "C:\\Windows\\Fonts\\segoeui.ttf",
+            "C:\\Windows\\Fonts\\arialbd.ttf",
+            "C:\\Windows\\Fonts\\arial.ttf",
+        ]
+    elif "arial" in family:
+        return [
+            "C:\\Windows\\Fonts\\arialbd.ttf",
+            "C:\\Windows\\Fonts\\arial.ttf",
+            "arialbd.ttf",
+            "arial.ttf",
+            "C:\\Windows\\Fonts\\segoeuib.ttf",
+            "C:\\Windows\\Fonts\\segoeui.ttf",
+            "C:\\Windows\\Fonts\\tahoma.ttf",
+        ]
+    else:  # Segoe UI (default)
+        return [
+            "C:\\Windows\\Fonts\\segoeuib.ttf",
+            "C:\\Windows\\Fonts\\segoeui.ttf",
+            "segoeuib.ttf",
+            "segoeui.ttf",
+            "C:\\Windows\\Fonts\\tahomabd.ttf",
+            "C:\\Windows\\Fonts\\tahoma.ttf",
+            "C:\\Windows\\Fonts\\arialbd.ttf",
+            "C:\\Windows\\Fonts\\arial.ttf",
+        ]
+
+
+def write_interactive_html(image_path, tags, description, color_style=None, font_size_style=None, font_family="Segoe UI", source_image=None):
     """
     Exports a standalone interactive HTML file packaging the image (in Base64)
     with CSS-styled hover overlays and tooltips.
     """
     import base64
     import os
+    import io
     try:
         # Get custom styling or defaults
         color_hex = color_style.get("hex", "#2563eb") if color_style else "#2563eb"
@@ -368,7 +434,7 @@ def write_interactive_html(image_path, tags, description, color_style=None, font
             shadow_rgba = f"rgba({r}, {g}, {b}, 0.6)"
 
         # Determine mime-type from extension
-        ext = os.path.splitext(image_path)[1].lower()
+        ext = os.path.splitext(image_path)[1].lower() if isinstance(image_path, str) else ".jpg"
         mime_type = "image/jpeg"
         if ext == ".png":
             mime_type = "image/png"
@@ -376,8 +442,17 @@ def write_interactive_html(image_path, tags, description, color_style=None, font
             mime_type = "image/webp"
 
         # 1. Read image and convert to base64
-        with open(image_path, "rb") as f:
-            b64_data = base64.b64encode(f.read()).decode("utf-8")
+        if source_image is not None:
+            buf = io.BytesIO()
+            fmt = "PNG" if ext == ".png" else "JPEG"
+            if fmt == "JPEG" and source_image.mode in ("RGBA", "P"):
+                source_image.convert("RGB").save(buf, format=fmt, quality=92)
+            else:
+                source_image.save(buf, format=fmt, quality=92 if fmt == "JPEG" else None)
+            b64_data = base64.b64encode(buf.getvalue()).decode("utf-8")
+        else:
+            with open(image_path, "rb") as f:
+                b64_data = base64.b64encode(f.read()).decode("utf-8")
             
         # 2. Build face tag overlays
         tags_html = ""
@@ -393,14 +468,14 @@ def write_interactive_html(image_path, tags, description, color_style=None, font
             
             tags_html += f"""
         <div class="face-tag" style="left: {left:.2f}%; top: {top:.2f}%; width: {w:.2f}%; height: {h:.2f}%;">
-            <div class="tooltip">{name_escaped}</div>
+            <div class="tooltip" dir="auto">{name_escaped}</div>
         </div>"""
 
         # Description banner HTML
         desc_banner_html = ""
         if description:
             desc_escaped = html.escape(description)
-            desc_banner_html = f'<div class="description-banner">Description: {desc_escaped}</div>'
+            desc_banner_html = f'<div class="description-banner" dir="auto">Description: {desc_escaped}</div>'
 
         # 3. Construct self-contained HTML
         html_content = f"""<!DOCTYPE html>
@@ -418,7 +493,7 @@ def write_interactive_html(image_path, tags, description, color_style=None, font
             justify-content: center;
             align-items: center;
             min-height: 100vh;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: '{font_family}', 'Segoe UI', Tahoma, Arial, sans-serif;
             color: #f1f5f9;
         }}
         .container {{
@@ -461,6 +536,7 @@ def write_interactive_html(image_path, tags, description, color_style=None, font
             font-size: {font_size_px}px;
             font-weight: bold;
             white-space: nowrap;
+            unicode-bidi: plaintext;
             opacity: 0;
             visibility: hidden;
             pointer-events: none;
@@ -524,33 +600,42 @@ def write_interactive_html(image_path, tags, description, color_style=None, font
         print(f"Error exporting interactive HTML: {e}")
         return False
 
-def write_interactive_svg(image_path, tags, description, color_style=None, font_size_style=None):
+def write_interactive_svg(image_path, tags, description, color_style=None, font_size_style=None, font_family="Segoe UI", source_image=None):
     """
     Exports a standalone interactive SVG file packaging the image (in Base64)
     with SVG rect overlays and native hover tooltips.
     """
     import base64
     import os
+    import io
     try:
         # Get custom styling or defaults
         color_hex = color_style.get("hex", "#38bdf8") if color_style else "#38bdf8"
         bg_hover = color_style.get("hover", "rgba(56, 189, 248, 0.15)") if color_style else "rgba(56, 189, 248, 0.15)"
 
         # Determine mime-type from extension
-        ext = os.path.splitext(image_path)[1].lower()
+        ext = os.path.splitext(image_path)[1].lower() if isinstance(image_path, str) else ".jpg"
         mime_type = "image/jpeg"
         if ext == ".png":
             mime_type = "image/png"
         elif ext == ".webp":
             mime_type = "image/webp"
 
-        # 1. Get image dimensions
-        with Image.open(image_path) as img:
-            width, height = img.size
-            
-        # 2. Read image and convert to base64
-        with open(image_path, "rb") as f:
-            b64_data = base64.b64encode(f.read()).decode("utf-8")
+        # 1. Get image dimensions & b64
+        if source_image is not None:
+            width, height = source_image.size
+            buf = io.BytesIO()
+            fmt = "PNG" if ext == ".png" else "JPEG"
+            if fmt == "JPEG" and source_image.mode in ("RGBA", "P"):
+                source_image.convert("RGB").save(buf, format=fmt, quality=92)
+            else:
+                source_image.save(buf, format=fmt, quality=92 if fmt == "JPEG" else None)
+            b64_data = base64.b64encode(buf.getvalue()).decode("utf-8")
+        else:
+            with Image.open(image_path) as img:
+                width, height = img.size
+            with open(image_path, "rb") as f:
+                b64_data = base64.b64encode(f.read()).decode("utf-8")
             
         # 3. Build face tag overlays in SVG rects
         rects_svg = ""
@@ -578,7 +663,7 @@ def write_interactive_svg(image_path, tags, description, color_style=None, font_
             desc_banner_svg = f"""
   <g class="desc-banner">
     <rect x="0" y="{banner_y}" width="{width}" height="{banner_h}" fill="#1e293b" fill-opacity="0.85" />
-    <text x="{width // 2}" y="{banner_y + 24}" fill="#f1f5f9" font-family="Segoe UI, sans-serif" font-size="16" font-style="italic" text-anchor="middle">Description: {desc_escaped}</text>
+    <text x="{width // 2}" y="{banner_y + 24}" fill="#f1f5f9" font-family="{font_family}, Segoe UI, Tahoma, Arial, sans-serif" font-size="16" font-style="italic" text-anchor="middle" direction="auto" unicode-bidi="plaintext">Description: {desc_escaped}</text>
   </g>"""
 
         # 4. Construct SVG content
@@ -622,483 +707,980 @@ def write_interactive_svg(image_path, tags, description, color_style=None, font_
         print(f"Error exporting interactive SVG: {e}")
         return False
 
-def draw_annotations_on_image(image_path, tags, output_path, draw_names=False, color_style=None, font_size_style=None, description=None, for_editor=False):
+class BadgeMetrics(tuple):
     """
-    Reads the image, draws bounding boxes and labels for each tag, and saves the result.
-    - If draw_names is False (Output 2-a: Numbered): draws face bounding boxes and numbers as-is.
-    - If draw_names is True (Output 2-b: Tagged v2.4): 
-      i) No rectangles around faces.
-      ii) Non-overlapping number badges placed on person's body (or top corner of face if body not visible).
-      iii) General Photo Description and Tagged names listed in a free space footer below the photo.
+    Subclasses tuple (width, height, is_pill) for backward compatibility
+    with `badge_w, badge_h, is_pill = compute_badge_metrics(...)` while
+    providing .corner_radius and .shape attributes.
+    """
+    def __new__(cls, width: int, height: int, is_pill: bool, corner_radius: int = 0, shape: str = "auto"):
+        return super().__new__(cls, (int(width), int(height), bool(is_pill)))
+
+    def __init__(self, width: int, height: int, is_pill: bool, corner_radius: int = 0, shape: str = "auto"):
+        self.corner_radius = int(corner_radius)
+        self.shape = str(shape)
+
+    @property
+    def width(self) -> int:
+        return self[0]
+
+    @property
+    def height(self) -> int:
+        return self[1]
+
+    @property
+    def is_pill(self) -> bool:
+        return self[2]
+
+
+def compute_badge_metrics(num_val, base_radius, badge_shape="auto"):
+    """
+    Computes BadgeMetrics(width, height, is_pill, corner_radius, shape) for badge numbering (1..999).
+    Canonical shapes: 'auto', 'rounded_square', 'square'.
+    - 'auto': Uses a circle for single digits (2r x 2r), cleanly expands into horizontal pill for 2+ digits (W x 2r).
+    - 'rounded_square': Genuine square (W x W) with visible corner radius rc = max(3, int(base_radius * 0.35)).
+    - 'square': Genuine sharp square (W x W) with corner radius 0.
+    Both Square and Rounded Square maintain genuine 1:1 square geometry across 1, 10, 125, 999.
+    """
+    from models import normalize_badge_shape
+    shape = normalize_badge_shape(badge_shape)
+    s = str(num_val)
+    n = len(s)
+    
+    # Calculate dimensions
+    if shape in ("square", "rounded_square"):
+        # Genuine square: width and height are strictly equal!
+        if n <= 1:
+            side = int(2 * base_radius)
+        elif n == 2:
+            side = int(2.4 * base_radius)
+        elif n == 3:
+            side = int(3.0 * base_radius)
+        else:
+            side = int((2.0 + 0.5 * (n - 1)) * base_radius)
+        w = side
+        h = side
+    else:
+        # Auto: circle for single digit, horizontal pill for multi-digits
+        h = int(2 * base_radius)
+        if n <= 1:
+            w = int(2 * base_radius)
+        elif n == 2:
+            w = int(2.4 * base_radius)
+        elif n == 3:
+            w = int(3.0 * base_radius)
+        else:
+            w = int((2.0 + 0.5 * (n - 1)) * base_radius)
+        
+    if shape == "square":
+        corner_radius = 0
+        is_pill = (n > 1)
+    elif shape == "rounded_square":
+        corner_radius = max(3, int(base_radius * 0.35))
+        is_pill = (n > 1)
+    else: # "auto"
+        corner_radius = base_radius
+        is_pill = (n > 1)
+        
+    return BadgeMetrics(w, h, is_pill, corner_radius=corner_radius, shape=shape)
+
+
+def get_badge_radius(image_width, image_height, font_size_style=None):
+    """
+    Returns image-space uniform badge radius across all tags.
+    """
+    scale_factor = font_size_style.get("scale", 1.0) if font_size_style else 1.0
+    font_size = max(14, int(min(image_width, image_height) / 50 * scale_factor))
+    return max(14, int(font_size * 0.95 * scale_factor))
+
+
+# Arabic and Persian presentation forms and shaping
+ARABIC_FORMS = {
+    '\u0622': ('\uFE81', '\uFE82', '\uFE81', '\uFE82'), # آ
+    '\u0623': ('\uFE83', '\uFE84', '\uFE83', '\uFE84'), # أ
+    '\u0624': ('\uFE85', '\uFE86', '\uFE85', '\uFE86'), # ؤ
+    '\u0625': ('\uFE87', '\uFE88', '\uFE87', '\uFE88'), # إ
+    '\u0626': ('\uFE89', '\uFE8A', '\uFE8B', '\uFE8C'), # ئ
+    '\u0627': ('\uFE8D', '\uFE8E', '\uFE8D', '\uFE8E'), # ا
+    '\u0628': ('\uFE8F', '\uFE90', '\uFE91', '\uFE92'), # ب
+    '\u067E': ('\uFB56', '\uFB57', '\uFB58', '\uFB59'), # پ
+    '\u0629': ('\uFE93', '\uFE94', '\uFE93', '\uFE94'), # ة
+    '\u062A': ('\uFE95', '\uFE96', '\uFE97', '\uFE98'), # ت
+    '\u062B': ('\uFE99', '\uFE9A', '\uFE9B', '\uFE9C'), # ث
+    '\u062C': ('\uFE9D', '\uFE9E', '\uFE9F', '\uFEA0'), # ج
+    '\u0686': ('\uFB7A', '\uFB7B', '\uFB7C', '\uFB7D'), # چ
+    '\u062D': ('\uFEA1', '\uFEA2', '\uFEA3', '\uFEA4'), # ح
+    '\u062E': ('\uFEA5', '\uFEA6', '\uFEA7', '\uFEA8'), # خ
+    '\u062F': ('\uFEA9', '\uFEAA', '\uFEA9', '\uFEAA'), # د
+    '\u0630': ('\uFEAB', '\uFEAC', '\uFEAB', '\uFEAC'), # ذ
+    '\u0631': ('\uFEAD', '\uFEAE', '\uFEAD', '\uFEAE'), # ر
+    '\u0632': ('\uFEAF', '\uFEB0', '\uFEAF', '\uFEB0'), # ز
+    '\u0698': ('\uFB8A', '\uFB8B', '\uFB8A', '\uFB8B'), # ژ
+    '\u0633': ('\uFEB1', '\uFEB2', '\uFEB3', '\uFEB4'), # س
+    '\u0634': ('\uFEB5', '\uFEB6', '\uFEB7', '\uFEB8'), # ش
+    '\u0635': ('\uFEB9', '\uFEBA', '\uFEBB', '\uFEBC'), # ص
+    '\u0636': ('\uFEBD', '\uFEBE', '\uFEBF', '\uFEC0'), # ض
+    '\u0637': ('\uFEC1', '\uFEC2', '\uFEC3', '\uFEC4'), # ط
+    '\u0638': ('\uFEC5', '\uFEC6', '\uFEC7', '\uFEC8'), # ظ
+    '\u0639': ('\uFEC9', '\uFECA', '\uFECB', '\uFECC'), # ع
+    '\u063A': ('\uFECD', '\uFECE', '\uFECF', '\uFED0'), # غ
+    '\u0641': ('\uFED1', '\uFED2', '\uFED3', '\uFED4'), # ف
+    '\u0642': ('\uFED5', '\uFED6', '\uFED7', '\uFED8'), # ق
+    '\u06A9': ('\uFB8E', '\uFB8F', '\uFB90', '\uFB91'), # ک
+    '\u0643': ('\uFED9', '\uFEDA', '\uFEDB', '\uFEDC'), # ك
+    '\u06AF': ('\uFB92', '\uFB93', '\uFB94', '\uFB95'), # گ
+    '\u0644': ('\uFEDD', '\uFEDE', '\uFEDF', '\uFEE0'), # ل
+    '\u0645': ('\uFEE1', '\uFEE2', '\uFEE3', '\uFEE4'), # م
+    '\u0646': ('\uFEE5', '\uFEE6', '\uFEE7', '\uFEE8'), # ن
+    '\u0648': ('\uFEE9', '\uFEEA', '\uFEE9', '\uFEEA'), # و
+    '\u0647': ('\uFEEB', '\uFEEC', '\uFEED', '\uFEEE'), # ه
+    '\u0649': ('\uFEEF', '\uFEF0', '\uFEEF', '\uFEF0'), # ى
+    '\u06CC': ('\uFBFC', '\uFBFD', '\uFBFE', '\uFBFF'), # ی
+    '\u064A': ('\uFEF1', '\uFEF2', '\uFEF3', '\uFEF4'), # ي
+}
+
+ARABIC_RIGHT_JOINING = {
+    '\u0622', '\u0623', '\u0624', '\u0625', '\u0627',
+    '\u062F', '\u0630', '\u0631', '\u0632', '\u0698', '\u0648'
+}
+
+
+try:
+    import arabic_reshaper
+    from bidi.algorithm import get_display
+    _HAS_PROVEN_SHAPER = True
+    _SHAPER_BACKEND = "arabic-reshaper+python-bidi"
+    _reshaper_config = {
+        'delete_harakat': False,
+        'support_ligatures': True,
+        'persian': True,
+    }
+    _custom_reshaper = arabic_reshaper.ArabicReshaper(configuration=_reshaper_config)
+except ImportError as _e:
+    _HAS_PROVEN_SHAPER = False
+    _custom_reshaper = None
+    _SHAPER_BACKEND = "pure-python-fallback"
+    import sys
+    sys.stderr.write(f"[PhotoTagger Notice] Package '{_e.name}' not available; pure-Python Persian/Arabic shaping fallback is active.\n")
+
+
+def is_arabic_char(c):
+    cp = ord(c)
+    return (
+        (0x0600 <= cp <= 0x06FF) or
+        (0x0750 <= cp <= 0x077F) or
+        (0x08A0 <= cp <= 0x08FF) or
+        (0xFB50 <= cp <= 0xFDFF) or
+        (0xFE70 <= cp <= 0xFEFF) or
+        cp == 0x200C or cp == 0x200D
+    )
+
+
+def _shape_arabic_word(w):
+    n = len(w)
+    out = []
+    i = 0
+    while i < n:
+        c = w[i]
+        if c not in ARABIC_FORMS:
+            out.append(c)
+            i += 1
+            continue
+        # Lam-Alef ligatures
+        if c == '\u0644' and i + 1 < n and w[i+1] in ('\u0622', '\u0623', '\u0625', '\u0627'):
+            alef = w[i+1]
+            prev_j = (i > 0 and w[i-1] in ARABIC_FORMS and w[i-1] not in ARABIC_RIGHT_JOINING)
+            if alef == '\u0622':
+                out.append('\uFEF6' if prev_j else '\uFEF5')
+            elif alef == '\u0623':
+                out.append('\uFEF8' if prev_j else '\uFEF7')
+            elif alef == '\u0625':
+                out.append('\uFEFA' if prev_j else '\uFEF9')
+            else:
+                out.append('\uFEFC' if prev_j else '\uFEFB')
+            i += 2
+            continue
+        prev_j = (i > 0 and w[i-1] in ARABIC_FORMS and w[i-1] not in ARABIC_RIGHT_JOINING)
+        next_j = (i + 1 < n and w[i+1] in ARABIC_FORMS)
+        shapes = ARABIC_FORMS[c]
+        if prev_j and next_j and c not in ARABIC_RIGHT_JOINING:
+            out.append(shapes[3])
+        elif prev_j:
+            out.append(shapes[1])
+        elif next_j and c not in ARABIC_RIGHT_JOINING:
+            out.append(shapes[2])
+        else:
+            out.append(shapes[0])
+        i += 1
+    return ''.join(out)
+
+
+def shape_persian_arabic_text(text):
+    """
+    Shapes Arabic/Persian cursive letters into contextual presentation forms
+    and applies standard Unicode Bidirectional Algorithm (UBA / UAX #9)
+    for correct RTL display in LTR raster renderers.
+    Handles Persian letters (گ, چ, پ, ژ, ک, ی), ZWNJ, diacritics, and mixed English/Persian.
+    """
+    if not text or not any(is_arabic_char(c) for c in text):
+        return text
+
+    if _HAS_PROVEN_SHAPER and _custom_reshaper is not None:
+        try:
+            reshaped = _custom_reshaper.reshape(text)
+            return get_display(reshaped)
+        except Exception:
+            pass
+
+    # Pure-Python fallback when external packages are not installed
+    tokens = []
+    curr = []
+    curr_is_ar = False
+    for c in text:
+        is_ar = is_arabic_char(c)
+        if not curr:
+            curr.append(c)
+            curr_is_ar = is_ar
+        elif is_ar == curr_is_ar:
+            curr.append(c)
+        else:
+            tokens.append((''.join(curr), curr_is_ar))
+            curr = [c]
+            curr_is_ar = is_ar
+    if curr:
+        tokens.append((''.join(curr), curr_is_ar))
+    
+    shaped_tokens = []
+    for tok, is_ar in tokens:
+        if is_ar:
+            shaped_tokens.append(''.join(reversed(_shape_arabic_word(tok))))
+        else:
+            shaped_tokens.append(tok)
+    return ''.join(reversed(shaped_tokens))
+
+
+def get_luminance(rgb):
+    """Computes relative luminance of an RGB tuple (0.0 to 1.0)."""
+    r, g, b = rgb[:3]
+    return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0
+
+def get_contrasting_colors(fill_rgb):
+    """
+    Mathematically computes WCAG contrasting text and keyline colors based on fill luminance.
+    Returns (text_rgba, keyline_rgba).
+    """
+    lum = get_luminance(fill_rgb)
+    if lum > 0.5:
+        # Light fill -> dark slate text and black keyline
+        return (15, 23, 42, 255), (0, 0, 0, 255)
+    else:
+        # Dark fill -> pure white text and crisp white keyline
+        return (255, 255, 255, 255), (255, 255, 255, 255)
+
+
+PRESETS = ["Classic", "High Contrast", "Minimal", "Borderless", "Single Outline", "Print"]
+
+
+def get_preset_rendering_properties(style_preset="Classic", color_style=None):
+    """
+    Returns unified styling properties:
+    (badge_rgb, badge_text_rgb, badge_keyline_rgb, legend_bg, legend_text, legend_header, legend_divider)
+    Guarantees readable text/stroke for the actual fill and retains the preset's legend treatment.
+    A preset populates defaults, and a subsequent swatch click overrides the badge accent for EVERY preset.
+    """
+    p = str(style_preset or "Classic").strip().lower()
+    if "outline" in p: # Single Outline preset
+        preset_name = "Single Outline"
+        stroke_width = 1
+        shape = "auto"
+        default_badge_rgb = (255, 255, 255)         # Crisp white default
+        default_text_rgb = (15, 23, 42, 255)
+        legend_bg = (36, 40, 48, 255)               # Charcoal #242830
+        legend_text = (241, 245, 249, 255)
+        legend_header = (129, 140, 248, 255)        # Indigo #818cf8
+        legend_divider = (56, 64, 78, 255)          # Border #38404E
+    elif "borderless" in p: # Borderless preset: solid badges, zero stroke, regular scale
+        preset_name = "Borderless"
+        stroke_width = 0
+        shape = "auto"
+        default_badge_rgb = (13, 148, 136)          # Teal #0d9488
+        default_text_rgb = (255, 255, 255, 255)
+        legend_bg = (36, 40, 48, 255)               # Charcoal #242830
+        legend_text = (226, 232, 240, 255)
+        legend_header = (129, 140, 248, 255)
+        legend_divider = (56, 64, 78, 255)
+    elif "high" in p:
+        preset_name = "High Contrast"
+        stroke_width = 1
+        shape = "auto"
+        default_badge_rgb = (234, 179, 8)           # Yellow #eab308
+        default_text_rgb = (0, 0, 0, 255)           # Black text for AAA contrast
+        legend_bg = (10, 10, 15, 255)               # Ultra dark slate
+        legend_text = (255, 255, 255, 255)          # Pure white
+        legend_header = (250, 204, 21, 255)         # Bright yellow
+        legend_divider = (250, 204, 21, 255)
+    elif "print" in p:
+        preset_name = "Print"
+        stroke_width = 1
+        shape = "square"
+        default_badge_rgb = (255, 255, 255)         # White paper badge by default
+        default_text_rgb = (0, 0, 0, 255)           # Crisp black text
+        legend_bg = (255, 255, 255, 255)            # Clean white paper background
+        legend_text = (15, 23, 42, 255)             # Dark slate text
+        legend_header = (30, 58, 138, 255)          # Navy header
+        legend_divider = (203, 213, 225, 255)       # Light gray line
+    elif "minimal" in p:
+        preset_name = "Minimal"
+        stroke_width = 0
+        shape = "auto"
+        default_badge_rgb = (241, 245, 249)         # Quiet light fill #f1f5f9
+        default_text_rgb = (15, 23, 42, 255)        # Dark slate text
+        legend_bg = (36, 40, 48, 255)               # Charcoal #242830
+        legend_text = (226, 232, 240, 255)
+        legend_header = (148, 163, 184, 255)
+        legend_divider = (56, 64, 78, 255)
+    else: # Classic
+        preset_name = "Classic"
+        stroke_width = 1
+        shape = "auto"
+        default_badge_rgb = (13, 148, 136)          # Teal #0d9488
+        default_text_rgb = (255, 255, 255, 255)
+        legend_bg = (36, 40, 48, 255)               # Charcoal #242830
+        legend_text = (226, 232, 240, 255)
+        legend_header = None
+        legend_divider = None
+
+    if color_style and isinstance(color_style, dict) and "rgb" in color_style:
+        badge_rgb = color_style["rgb"]
+        calc_text, calc_keyline = get_contrasting_colors(badge_rgb)
+        badge_text_rgb = calc_text
+        badge_keyline_rgb = calc_keyline
+    else:
+        badge_rgb = default_badge_rgb
+        calc_text, calc_keyline = get_contrasting_colors(badge_rgb)
+        badge_text_rgb = default_text_rgb if default_text_rgb else calc_text
+        badge_keyline_rgb = calc_keyline
+
+    if legend_header is None:
+        legend_header = badge_rgb + (255,) if len(badge_rgb) == 3 else badge_rgb
+    if legend_divider is None:
+        legend_divider = badge_rgb + (255,) if len(badge_rgb) == 3 else badge_rgb
+
+    return {
+        "name": preset_name,
+        "stroke_width": stroke_width,
+        "shape": shape,
+        "shadow_width": 0,
+        "shadow_rgb": None,
+        "halo_rgb": None,
+        "keyline_rgb": badge_keyline_rgb[:3] if len(badge_keyline_rgb) >= 3 else badge_keyline_rgb,
+        "badge_rgb": badge_rgb,
+        "badge_text_rgb": badge_text_rgb,
+        "badge_keyline_rgb": badge_keyline_rgb,
+        "legend_bg": legend_bg,
+        "legend_text": legend_text,
+        "legend_header": legend_header,
+        "legend_divider": legend_divider,
+    }
+
+
+def compute_default_badge_positions(tags, width, height, font_size_style=None, badge_shape="auto"):
+    """
+    Computes unified normalized (bx, by) badge positions for all tags:
+    - If a tag already has manual overrides ('bx', 'by'), preserves them.
+    - Otherwise, computes collision-free automatic positions strictly outside face boxes,
+      avoiding cross-person body masking and overlapping previous badges.
+    Returns a list of (bx_norm, by_norm) corresponding 1:1 to the input tags list.
+    """
+    import math
+    badge_r = get_badge_radius(width, height, font_size_style)
+    
+    all_face_boxes = []
+    for t in tags:
+        fl = int((t['x'] - t['w'] / 2.0) * width)
+        ft = int((t['y'] - t['h'] / 2.0) * height)
+        fr = int((t['x'] + t['w'] / 2.0) * width)
+        fb = int((t['y'] + t['h'] / 2.0) * height)
+        fl = max(0, min(width - 1, fl))
+        ft = max(0, min(height - 1, ft))
+        fr = max(0, min(width - 1, fr))
+        fb = max(0, min(height - 1, fb))
+        fw = max(1, fr - fl)
+        fh = max(1, fb - ft)
+        cx = int(fl + fw / 2.0)
+        cy = int(ft + fh / 2.0)
+        all_face_boxes.append({
+            'fl': fl, 'ft': ft, 'fr': fr, 'fb': fb,
+            'cx': cx, 'cy': cy, 'fw': fw, 'fh': fh
+        })
+
+    def badge_rect_intersects_rect(bx, by, bw, bh, x1, y1, x2, y2, margin=1):
+        bl = bx - bw - margin
+        br = bx + bw + margin
+        bt = by - bh - margin
+        bb = by + bh + margin
+        return not (br < x1 or bl > x2 or bb < y1 or bt > y2)
+
+    placed_badges = []
+    def is_valid_badge_placement(bx, by, bw, bh, person_idx):
+        if bx - bw < 2 or bx + bw > width - 2 or by - bh < 2 or by + bh > height - 2:
+            return False
+        for data in all_face_boxes:
+            if badge_rect_intersects_rect(bx, by, bw, bh, data['fl'], data['ft'], data['fr'], data['fb'], margin=1):
+                return False
+        for k, data in enumerate(all_face_boxes):
+            if k != person_idx:
+                k_body_l = data['fl'] - int(data['fw'] * 0.1)
+                k_body_r = data['fr'] + int(data['fw'] * 0.1)
+                k_body_t = data['fb'] + 1
+                k_body_b = min(height, data['fb'] + int(data['fh'] * 1.2))
+                if badge_rect_intersects_rect(bx, by, bw, bh, k_body_l, k_body_t, k_body_r, k_body_b, margin=1):
+                    return False
+        min_gap = 2
+        for prev_x, prev_y, prev_bw, prev_bh in placed_badges:
+            dx = abs(bx - prev_x)
+            dy = abs(by - prev_y)
+            if dx < (bw + prev_bw + min_gap) and dy < (bh + prev_bh + min_gap):
+                return False
+        return True
+
+    positions = []
+    for idx, t in enumerate(tags):
+        num_str = str(idx + 1)
+        metrics = compute_badge_metrics(num_str, badge_r, badge_shape=badge_shape)
+        bw = metrics.width // 2
+        bh = metrics.height // 2
+        
+        chosen_pos = None
+        if t.get('bx') is not None and t.get('by') is not None:
+            bx_custom = int(t['bx'] * width)
+            by_custom = int(t['by'] * height)
+            chosen_pos = (bx_custom, by_custom)
+        else:
+            box_i = all_face_boxes[idx]
+            fl_i, ft_i, fr_i, fb_i = box_i['fl'], box_i['ft'], box_i['fr'], box_i['fb']
+            fw_i, _, cx_i, cy_i = box_i['fw'], box_i['fh'], box_i['cx'], box_i['cy']
+            
+            candidates = [
+                (cx_i, fb_i + badge_r + 2),
+                (cx_i, ft_i - badge_r - 2),
+                (cx_i - int(fw_i * 0.35), ft_i - badge_r - 2),
+                (cx_i + int(fw_i * 0.35), ft_i - badge_r - 2),
+                (cx_i - int(fw_i * 0.35), fb_i + badge_r + 2),
+                (cx_i + int(fw_i * 0.35), fb_i + badge_r + 2),
+                (fl_i - badge_r - 2, cy_i),
+                (fr_i + badge_r + 2, cy_i),
+            ]
+            for cand_x, cand_y in candidates:
+                if is_valid_badge_placement(cand_x, cand_y, bw, bh, idx):
+                    chosen_pos = (cand_x, cand_y)
+                    break
+            if chosen_pos is None:
+                base_x, base_y = cx_i, ft_i - badge_r - 2
+                found_spiral = False
+                for dist in range(3, 150, 3):
+                    for angle_deg in range(0, 360, 30):
+                        rad = math.radians(angle_deg)
+                        sx = int(base_x + dist * math.cos(rad))
+                        sy = int(base_y + dist * math.sin(rad))
+                        if is_valid_badge_placement(sx, sy, bw, bh, idx):
+                            chosen_pos = (sx, sy)
+                            found_spiral = True
+                            break
+                    if found_spiral:
+                        break
+            if chosen_pos is None:
+                bx = max(badge_r + 2, min(width - badge_r - 2, cx_i))
+                by = max(badge_r + 2, min(height - badge_r - 2, ft_i - badge_r - 2))
+                chosen_pos = (bx, by)
+                
+        bx, by = chosen_pos
+        placed_badges.append((bx, by, bw, bh))
+        positions.append((bx / float(width), by / float(height)))
+        
+    return positions
+
+
+def draw_annotations_on_image(
+    image_path,
+    tags,
+    output_path=None,
+    draw_names=False,
+    color_style=None,
+    font_size_style=None,
+    description=None,
+    for_editor=False,
+    style_preset="Classic",
+    badge_shape="auto",
+    font_family="Segoe UI"
+):
+    """
+    Reads the image, draws bounding boxes and labels for each tag, and renders the result.
+    - If output_path is None: returns the final rendered PIL Image directly in-memory.
+    - If output_path is provided: saves to disk and returns True.
+    - Supports truthful appearance presets (Classic, High Contrast, Minimal, Print).
+    - Preserves Unicode accents, non-Latin, and Persian/Arabic shaped text.
+    - Supports badge shapes: 'auto' (circle/pill), 'rounded_square', 'square'.
+    - Supports tag font families: 'Segoe UI' (default), 'Tahoma', 'Arial'.
     """
     try:
         import math
         from PIL import Image, ImageDraw, ImageFont
         tags = sort_faces_spatial(tags)
-        with Image.open(image_path) as img:
-            annotated = img.copy()
-            width, height = annotated.size
-            
-            if annotated.mode not in ('RGB', 'RGBA'):
-                annotated = annotated.convert('RGB')
+        
+        if isinstance(image_path, Image.Image):
+            annotated = image_path.copy()
+        else:
+            with Image.open(image_path) as img:
+                annotated = img.copy()
                 
-            draw = ImageDraw.Draw(annotated, 'RGBA')
+        width, height = annotated.size
+        
+        if annotated.mode not in ('RGB', 'RGBA'):
+            annotated = annotated.convert('RGB')
             
-            line_width = max(2, int(min(width, height) / 300))
-            scale_factor = font_size_style.get("scale", 1.0) if font_size_style else 1.0
-            font_size = max(14, int(min(width, height) / 50 * scale_factor))
+        draw = ImageDraw.Draw(annotated, 'RGBA')
+        
+        props = get_preset_rendering_properties(style_preset=style_preset, color_style=color_style)
+        box_color = props["badge_rgb"]
+        box_color_rgba = box_color + (255,)
+        badge_text_rgba = props["badge_text_rgb"]
+        
+        line_width = max(2, int(min(width, height) / 300))
+        scale_factor = font_size_style.get("scale", 1.0) if font_size_style else 1.0
+        font_size = max(14, int(min(width, height) / 50 * scale_factor))
+        
+        font_paths = resolve_font_files_for_family(font_family)
+        font = None
+        for path in font_paths:
+            try:
+                font = ImageFont.truetype(path, font_size)
+                break
+            except IOError:
+                continue
+        if font is None:
+            font = ImageFont.load_default()
             
-            box_color = color_style.get("rgb", (20, 184, 166)) if color_style else (20, 184, 166)
-            box_color_rgba = box_color + (255,)
+        if not draw_names:
+            # ----------------------------------------------------
+            # Output 2-a: Numbered
+            # ----------------------------------------------------
+            for idx, t in enumerate(tags):
+                left = int((t['x'] - t['w'] / 2.0) * width)
+                top = int((t['y'] - t['h'] / 2.0) * height)
+                right = int((t['x'] + t['w'] / 2.0) * width)
+                bottom = int((t['y'] + t['h'] / 2.0) * height)
+                
+                left = max(0, min(width - 1, left))
+                top = max(0, min(height - 1, top))
+                right = max(0, min(width - 1, right))
+                bottom = max(0, min(height - 1, bottom))
+                
+                draw.rectangle([left, top, right, bottom], outline=box_color_rgba, width=line_width)
+                text = str(idx + 1)
+                
+                try:
+                    tb = draw.textbbox((0, 0), text, font=font)
+                    text_w = tb[2] - tb[0]
+                    text_h = tb[3] - tb[1]
+                except AttributeError:
+                    text_w, text_h = draw.textsize(text, font=font)
+                    
+                padding = max(3, font_size // 5)
+                text_y = top - text_h - padding * 2
+                if text_y < 0:
+                    text_y = top + padding
+                    
+                bg_rect = [left, text_y, left + text_w + padding * 2, text_y + text_h + padding * 2]
+                draw.rectangle(bg_rect, fill=(17, 24, 39, 220), outline=box_color_rgba, width=1)
+                draw.text((left + padding, text_y + padding), text, font=font, fill=badge_text_rgba)
+                
+            final_output_img = annotated
+        else:
+            # ----------------------------------------------------
+            # Output 2-b: Tagged
+            # ----------------------------------------------------
+            from models import normalize_badge_shape
+            norm_shape = normalize_badge_shape(badge_shape)
+            positions = compute_default_badge_positions(tags, width, height, font_size_style, badge_shape=norm_shape)
+            badge_r = get_badge_radius(width, height, font_size_style)
             
-            font_paths = [
-                "arialbd.ttf",
-                "arial.ttf",
-                "C:\\Windows\\Fonts\\arialbd.ttf",
-                "C:\\Windows\\Fonts\\arial.ttf",
-                "C:\\Windows\\Fonts\\segoeuib.ttf",
-                "C:\\Windows\\Fonts\\segoeui.ttf",
-                "DejaVuSans.ttf"
-            ]
-            font = None
+            for idx, t in enumerate(tags):
+                bx_norm, by_norm = positions[idx]
+                t['bx'] = bx_norm
+                t['by'] = by_norm
+                
+                bx = int(bx_norm * width)
+                by = int(by_norm * height)
+                num_str = str(idx + 1)
+                metrics = compute_badge_metrics(num_str, badge_r, badge_shape=norm_shape)
+                bw = metrics.width // 2
+                bh = metrics.height // 2
+                
+                if not for_editor:
+                    preset_lower = str(style_preset or "Classic").strip().lower()
+                    is_single_outline = "outline" in preset_lower
+                    is_minimal = "minimal" in preset_lower
+                    is_borderless = "borderless" in preset_lower
+                    is_print = "print" in preset_lower
+
+                    num_fill = badge_text_rgba
+                    keyline_rgba = props.get("badge_keyline_rgb", (255, 255, 255, 255))
+
+                    if is_single_outline:
+                        # Exactly one visible perimeter on circles and rectangles, without a halo, inset line or shadow
+                        b_fill = box_color_rgba
+                        b_outline = keyline_rgba
+                        b_width = max(2, int(line_width * 0.75))
+                    elif is_minimal or is_borderless:
+                        # Minimal & Borderless: solid fill with no stroke
+                        b_fill = box_color_rgba
+                        b_outline = None
+                        b_width = 0
+                    elif is_print:
+                        # Print uses an opaque rectangular badge with black/contrasting keyline and text
+                        b_fill = box_color_rgba
+                        b_outline = (0, 0, 0, 255) if box_color in ((255, 255, 255), (248, 250, 252)) else keyline_rgba
+                        b_width = max(1, line_width // 2)
+                    else:
+                        # Classic & High Contrast: colored fill with contrasting keyline
+                        b_fill = box_color_rgba
+                        b_outline = keyline_rgba
+                        b_width = max(1, line_width // 2)
+
+                    shape_to_render = metrics.shape
+
+                    if shape_to_render == "square":
+                        draw.rectangle(
+                            [bx - bw, by - bh, bx + bw, by + bh],
+                            fill=b_fill,
+                            outline=b_outline if b_width > 0 else None,
+                            width=b_width
+                        )
+                    elif shape_to_render == "rounded_square":
+                        draw.rounded_rectangle(
+                            [bx - bw, by - bh, bx + bw, by + bh],
+                            radius=metrics.corner_radius,
+                            fill=b_fill,
+                            outline=b_outline if b_width > 0 else None,
+                            width=b_width
+                        )
+                    else: # auto
+                        if not metrics.is_pill:
+                            draw.ellipse(
+                                [bx - badge_r, by - badge_r, bx + badge_r, by + badge_r],
+                                fill=b_fill,
+                                outline=b_outline if b_width > 0 else None,
+                                width=b_width
+                            )
+                        else:
+                            draw.rounded_rectangle(
+                                [bx - bw, by - badge_r, bx + bw, by + badge_r],
+                                radius=badge_r,
+                                fill=b_fill,
+                                outline=b_outline if b_width > 0 else None,
+                                width=b_width
+                            )
+
+                    digit_count = len(num_str)
+                    if digit_count <= 1:
+                        badge_font_scale = 0.72
+                    elif digit_count == 2:
+                        badge_font_scale = 0.70
+                    elif digit_count == 3:
+                        badge_font_scale = 0.65
+                    else:
+                        badge_font_scale = 0.58
+                        
+                    badge_font_size = max(8, int(badge_r * badge_font_scale))
+                    badge_font = None
+                    for path in font_paths:
+                        try:
+                            badge_font = ImageFont.truetype(path, badge_font_size)
+                            break
+                        except IOError:
+                            continue
+                    if badge_font is None:
+                        badge_font = font
+
+                    try:
+                        tb = draw.textbbox((0, 0), num_str, font=badge_font)
+                        tw = tb[2] - tb[0]
+                        th = tb[3] - tb[1]
+                        tx_off, ty_off = tb[0], tb[1]
+                    except AttributeError:
+                        tw, th = draw.textsize(num_str, font=badge_font)
+                        tx_off, ty_off = 0, 0
+
+                    tx = bx - (tw / 2.0) - tx_off
+                    ty = by - (th / 2.0) - ty_off
+                    draw.text((tx, ty), num_str, font=badge_font, fill=num_fill if 'num_fill' in locals() else badge_text_rgba)
+                
+            # Free space footer under photo
+            if description is None and not isinstance(image_path, Image.Image):
+                try:
+                    from PIL.ExifTags import TAGS
+                    with Image.open(image_path) as img:
+                        exif_data = img._getexif()
+                        if exif_data:
+                            for tag, value in exif_data.items():
+                                decoded = TAGS.get(tag, tag)
+                                if decoded == "ImageDescription":
+                                    description = value
+                                    break
+                except Exception:
+                    description = ''
+                    
+            desc_text = str(description).strip() if description else ""
+
+            legend_font_size = max(13, int(min(width, height) / 48 * scale_factor))
+            legend_font = None
             for path in font_paths:
                 try:
-                    font = ImageFont.truetype(path, font_size)
+                    legend_font = ImageFont.truetype(path, legend_font_size)
                     break
                 except IOError:
                     continue
-            if font is None:
-                font = ImageFont.load_default()
+            if legend_font is None:
+                legend_font = ImageFont.load_default()
                 
-            if not draw_names:
-                # ----------------------------------------------------
-                # Output 2-a: Numbered (Kept exactly as-is)
-                # ----------------------------------------------------
-                for idx, t in enumerate(tags):
-                    left = int((t['x'] - t['w'] / 2.0) * width)
-                    top = int((t['y'] - t['h'] / 2.0) * height)
-                    right = int((t['x'] + t['w'] / 2.0) * width)
-                    bottom = int((t['y'] + t['h'] / 2.0) * height)
-                    
-                    left = max(0, min(width - 1, left))
-                    top = max(0, min(height - 1, top))
-                    right = max(0, min(width - 1, right))
-                    bottom = max(0, min(height - 1, bottom))
-                    
-                    draw.rectangle([left, top, right, bottom], outline=box_color_rgba, width=line_width)
-                    text = str(idx + 1)
-                    
-                    try:
-                        tb = draw.textbbox((0, 0), text, font=font)
-                        text_w = tb[2] - tb[0]
-                        text_h = tb[3] - tb[1]
-                    except AttributeError:
-                        text_w, text_h = draw.textsize(text, font=font)
-                        
-                    padding = max(3, font_size // 5)
-                    text_y = top - text_h - padding * 2
-                    if text_y < 0:
-                        text_y = top + padding
-                        
-                    bg_rect = [left, text_y, left + text_w + padding * 2, text_y + text_h + padding * 2]
-                    draw.rectangle(bg_rect, fill=(17, 24, 39, 220), outline=box_color_rgba, width=1)
-                    draw.text((left + padding, text_y + padding), text, font=font, fill=(255, 255, 255, 255))
-                    
-                final_output_img = annotated
-            else:
-                # ----------------------------------------------------
-                # Output 2-b: Tagged (Photo Tagger v2.3)
-                # i) No face rectangles
-                # ii) Number badges placed strictly OUTSIDE all face boxes
-                #     - Zero face masking (NO badge inside any face bounding box)
-                #     - Zero cross-person body landing
-                #     - Dynamic resizing (smaller visible badge) when space is constrained
-                # iii) General Photo Description and Tagged names listed in free space
-                # ----------------------------------------------------
-                # ----------------------------------------------------
-                # Output 2-b: Tagged (Photo Tagger v2.3)
-                # i) No face rectangles
-                # ii) Number badges placed strictly OUTSIDE all face boxes
-                #     - Zero face masking (NO badge inside any face bounding box)
-                #     - Zero cross-person body landing
-                #     - Dynamic resizing & pill shape for 3-digit numbers to fit inside badge
-                # iii) General Photo Description and Tagged names listed in free space
-                # ----------------------------------------------------
-                # Use tags in the exact order passed from app/UI to guarantee 1:1 number matching!
-                placed_badges = []  # List of (bx, by, badge_w, badge_h)
-                
-                all_face_boxes = []
-                for t in tags:
-                    fl = int((t['x'] - t['w'] / 2.0) * width)
-                    ft = int((t['y'] - t['h'] / 2.0) * height)
-                    fr = int((t['x'] + t['w'] / 2.0) * width)
-                    fb = int((t['y'] + t['h'] / 2.0) * height)
-                    fl = max(0, min(width - 1, fl))
-                    ft = max(0, min(height - 1, ft))
-                    fr = max(0, min(width - 1, fr))
-                    fb = max(0, min(height - 1, fb))
-                    fw = max(1, fr - fl)
-                    fh = max(1, fb - ft)
-                    cx = int(fl + fw / 2.0)
-                    cy = int(ft + fh / 2.0)
-                    all_face_boxes.append({
-                        'fl': fl, 'ft': ft, 'fr': fr, 'fb': fb,
-                        'cx': cx, 'cy': cy, 'fw': fw, 'fh': fh
-                    })
-
-                def badge_rect_intersects_rect(bx, by, bw, bh, x1, y1, x2, y2, margin=1):
-                    # Check overlap between badge rect [bx-bw, by-bh, bx+bw, by+bh] and box [x1, y1, x2, y2]
-                    bl = bx - bw - margin
-                    br = bx + bw + margin
-                    bt = by - bh - margin
-                    bb = by + bh + margin
-                    return not (br < x1 or bl > x2 or bb < y1 or bt > y2)
-
-                def is_valid_badge_placement(bx, by, bw, bh, person_idx):
-                    # 1. Image boundary check
-                    if bx - bw < 2 or bx + bw > width - 2 or by - bh < 2 or by + bh > height - 2:
-                        return False
-
-                    # 2. MUST NOT MASK ANY FACE BOX (person_idx or any other person k!)
-                    for data in all_face_boxes:
-                        if badge_rect_intersects_rect(bx, by, bw, bh, data['fl'], data['ft'], data['fr'], data['fb'], margin=1):
-                            return False
-
-                    # 3. MUST NOT land on ANOTHER person k's body box (k != person_idx)
-                    for k, data in enumerate(all_face_boxes):
-                        if k != person_idx:
-                            k_body_l = data['fl'] - int(data['fw'] * 0.1)
-                            k_body_r = data['fr'] + int(data['fw'] * 0.1)
-                            k_body_t = data['fb'] + 1
-                            k_body_b = min(height, data['fb'] + int(data['fh'] * 1.2))
-                            if badge_rect_intersects_rect(bx, by, bw, bh, k_body_l, k_body_t, k_body_r, k_body_b, margin=1):
-                                return False
-
-                    # 4. MUST NOT overlap any previously placed badge
-                    min_gap = 2
-                    for prev_x, prev_y, prev_bw, prev_bh in placed_badges:
-                        dx = abs(bx - prev_x)
-                        dy = abs(by - prev_y)
-                        if dx < (bw + prev_bw + min_gap) and dy < (bh + prev_bh + min_gap):
-                            return False
-
-                    return True
-
-                # Uniform badge radius across ALL tags for identical size & shape
-                scale_factor = font_size_style.get("scale", 1.0) if font_size_style else 1.0
-                uniform_badge_r = max(14, int(font_size * 0.95 * scale_factor))
-
-                for idx, t in enumerate(tags):
-                    box_i = all_face_boxes[idx]
-                    fl_i, ft_i, fr_i, fb_i = box_i['fl'], box_i['ft'], box_i['fr'], box_i['fb']
-                    fw_i, _, cx_i, cy_i = box_i['fw'], box_i['fh'], box_i['cx'], box_i['cy']
-                    
-                    num_str = str(idx + 1)
-                    badge_r = uniform_badge_r
-                    bw = badge_r
-                    bh = badge_r
-                    
-                    chosen_pos = None
-
-                    # 1. Check if user set custom manual position for this badge
-                    if 'bx' in t and 'by' in t and t['bx'] is not None and t['by'] is not None:
-                        bx_custom = int(t['bx'] * width)
-                        by_custom = int(t['by'] * height)
-                        chosen_pos = (bx_custom, by_custom)
-                    else:
-                        # 2. Automatic smart placement search with uniform badge_r
-                        candidates = [
-                            (cx_i, fb_i + badge_r + 2),                 # Body below chin
-                            (cx_i, ft_i - badge_r - 2),                 # Above head / hair top
-                            (cx_i - int(fw_i * 0.35), ft_i - badge_r - 2), # Above head left
-                            (cx_i + int(fw_i * 0.35), ft_i - badge_r - 2), # Above head right
-                            (cx_i - int(fw_i * 0.35), fb_i + badge_r + 2), # Body below chin left
-                            (cx_i + int(fw_i * 0.35), fb_i + badge_r + 2), # Body below chin right
-                            (fl_i - badge_r - 2, cy_i),                 # Left of face box
-                            (fr_i + badge_r + 2, cy_i),                 # Right of face box
-                        ]
-                        
-                        for (cand_x, cand_y) in candidates:
-                            if is_valid_badge_placement(cand_x, cand_y, bw, bh, idx):
-                                chosen_pos = (cand_x, cand_y)
-                                break
-
-                        if chosen_pos is None:
-                            # Outward spiral search
-                            base_x, base_y = cx_i, ft_i - badge_r - 2
-                            found_spiral = False
-                            for dist in range(3, 150, 3):
-                                for angle_deg in range(0, 360, 30):
-                                    rad = math.radians(angle_deg)
-                                    sx = int(base_x + dist * math.cos(rad))
-                                    sy = int(base_y + dist * math.sin(rad))
-                                    if is_valid_badge_placement(sx, sy, bw, bh, idx):
-                                        chosen_pos = (sx, sy)
-                                        found_spiral = True
-                                        break
-                                if found_spiral:
-                                    break
-
-                        if chosen_pos is None:
-                            bx = max(badge_r + 2, min(width - badge_r - 2, cx_i))
-                            by = max(badge_r + 2, min(height - badge_r - 2, ft_i - badge_r - 2))
-                            chosen_pos = (bx, by)
-
-                    bx, by = chosen_pos
-                    placed_badges.append((bx, by, bw, bh))
-
-                    # Store normalized badge position in tag dict so editor and exports stay in sync
-                    t['bx'] = bx / float(width)
-                    t['by'] = by / float(height)
-
-                    if not for_editor:
-                        # Draw uniform circular badge on image
-                        draw.ellipse([bx - badge_r, by - badge_r, bx + badge_r, by + badge_r], 
-                                     fill=box_color_rgba, outline=(255, 255, 255, 255), width=max(1, line_width // 2))
-
-                        # Draw text centered inside uniform circle with 100% uniform font size for ALL numbers
-                        badge_font_size = max(9, int(badge_r * 0.72))
-                        badge_font = None
-                        for path in font_paths:
-                            try:
-                                badge_font = ImageFont.truetype(path, badge_font_size)
-                                break
-                            except IOError:
-                                continue
-                        if badge_font is None:
-                            badge_font = font
-
+            line_h = max(28, int(legend_font_size * 2.0))
+            header_h = max(30, int(legend_font_size * 2.2))
+            pad_top = max(16, int(legend_font_size * 1.0))
+            pad_bottom = max(16, int(legend_font_size * 1.2))
+            pad_left = max(20, int(width * 0.03))
+            max_text_w = width - (pad_left * 2)
+            
+            # Wrap General Photo Description
+            desc_lines = []
+            if desc_text:
+                for paragraph in desc_text.split('\n'):
+                    words = paragraph.split(' ')
+                    curr = []
+                    for w in words:
+                        test_str = ' '.join(curr + [w])
                         try:
-                            tb = draw.textbbox((0, 0), num_str, font=badge_font)
+                            tb = draw.textbbox((0, 0), test_str, font=legend_font)
                             tw = tb[2] - tb[0]
-                            th = tb[3] - tb[1]
-                            tx_off, ty_off = tb[0], tb[1]
                         except AttributeError:
-                            tw, th = draw.textsize(num_str, font=badge_font)
-                            tx_off, ty_off = 0, 0
-
-                        tx = bx - (tw / 2.0) - tx_off
-                        ty = by - (th / 2.0) - ty_off
-                        draw.text((tx, ty), num_str, font=badge_font, fill=(255, 255, 255, 255))
-                    
-                # Free space footer under photo
-                if description is None:
-                    try:
-                        from PIL.ExifTags import TAGS
-                        with Image.open(image_path) as img:
-                            exif_data = img._getexif()
-                            if exif_data:
-                                for tag, value in exif_data.items():
-                                    decoded = TAGS.get(tag, tag)
-                                    if decoded == "ImageDescription":
-                                        description = value
-                                        break
-                    except Exception:
-                        description = ''
-                        
-                desc_text = str(description).strip() if description else ""
-
-                legend_font_size = max(13, int(min(width, height) / 48 * scale_factor))
-                legend_font = None
-                for path in font_paths:
-                    try:
-                        legend_font = ImageFont.truetype(path, legend_font_size)
-                        break
-                    except IOError:
-                        continue
-                if legend_font is None:
-                    legend_font = ImageFont.load_default()
-                    
-                line_h = max(28, int(legend_font_size * 2.0))
-                header_h = max(30, int(legend_font_size * 2.2))
-                pad_top = max(16, int(legend_font_size * 1.0))
-                pad_bottom = max(16, int(legend_font_size * 1.2))
-                pad_left = max(20, int(width * 0.03))
-                max_text_w = width - (pad_left * 2)
-                
-                # Wrap General Photo Description
-                desc_lines = []
-                if desc_text:
-                    for paragraph in desc_text.split('\n'):
-                        words = paragraph.split(' ')
-                        curr = []
-                        for w in words:
-                            test_str = ' '.join(curr + [w])
-                            try:
-                                tb = draw.textbbox((0, 0), test_str, font=legend_font)
-                                tw = tb[2] - tb[0]
-                            except AttributeError:
-                                tw, _ = draw.textsize(test_str, font=legend_font)
-                            if tw <= max_text_w or not curr:
-                                curr.append(w)
-                            else:
-                                desc_lines.append(' '.join(curr))
-                                curr = [w]
-                        if curr:
+                            tw, _ = draw.textsize(test_str, font=legend_font)
+                        if tw <= max_text_w or not curr:
+                            curr.append(w)
+                        else:
                             desc_lines.append(' '.join(curr))
-                            
-                desc_block_h = (header_h + (len(desc_lines) * line_h) + int(line_h * 0.5)) if desc_lines else 0
-
-                # Tagged Persons Grid Layout Pre-calculation
-                num_tags = len(tags)
-                tag_layouts = []
-                row_heights = []
-                num_cols = 1
-                col_w = max_text_w
-                line_spacing = legend_font_size + 4
-
-                if num_tags > 0:
-                    avail_w = width - (pad_left * 2)
-                    num_cols = max(1, min(4, avail_w // 250))
-                    col_w = avail_w // num_cols
-                    
-                    for idx, t in enumerate(tags):
-                        num_str = str(idx + 1)
-                        raw_name = t.get('name', '').strip()
-                        name_str = raw_name if raw_name else "(Unnamed)"
+                            curr = [w]
+                    if curr:
+                        desc_lines.append(' '.join(curr))
                         
-                        try:
-                            tb_n = draw.textbbox((0, 0), num_str, font=legend_font)
-                            tw_n = tb_n[2] - tb_n[0]
-                            th_n = tb_n[3] - tb_n[1]
-                            tx_off, ty_off = tb_n[0], tb_n[1]
-                        except AttributeError:
-                            tw_n, th_n = draw.textsize(num_str, font=legend_font)
-                            tx_off, ty_off = 0, 0
-                            
-                        pill_h = max(22, int(legend_font_size * 1.35))
+            desc_block_h = (header_h + (len(desc_lines) * line_h) + int(line_h * 0.5)) if desc_lines else 0
+
+            # Tagged Persons Grid Layout Pre-calculation
+            num_tags = len(tags)
+            tag_layouts = []
+            row_heights = []
+            num_cols = 1
+            col_w = max_text_w
+            line_spacing = legend_font_size + 4
+
+            if num_tags > 0:
+                avail_w = width - (pad_left * 2)
+                num_cols = max(1, min(4, avail_w // 250))
+                col_w = avail_w // num_cols
+                
+                for idx, t in enumerate(tags):
+                    num_str = str(idx + 1)
+                    raw_name = t.get('name', '').strip()
+                    name_str = raw_name if raw_name else "(Unnamed)"
+                    
+                    try:
+                        tb_n = draw.textbbox((0, 0), num_str, font=legend_font)
+                        tw_n = tb_n[2] - tb_n[0]
+                        th_n = tb_n[3] - tb_n[1]
+                        tx_off, ty_off = tb_n[0], tb_n[1]
+                    except AttributeError:
+                        tw_n, th_n = draw.textsize(num_str, font=legend_font)
+                        tx_off, ty_off = 0, 0
+                        
+                    pill_h = max(22, int(legend_font_size * 1.35))
+                    if norm_shape in ("square", "rounded_square"):
+                        pill_w = max(pill_h, tw_n + 10)
+                        pill_h = pill_w  # Keep genuine square in legend badge
+                    else:
                         pill_w = max(pill_h, tw_n + 12)
-                        avail_name_w = col_w - pill_w - 18
-                        
-                        words = name_str.split(' ')
-                        name_lines = []
-                        curr_line = []
-                        for w in words:
-                            test = ' '.join(curr_line + [w]) if curr_line else w
-                            try:
-                                tb_test = draw.textbbox((0, 0), test, font=legend_font)
-                                tw_test = tb_test[2] - tb_test[0]
-                            except AttributeError:
-                                tw_test, _ = draw.textsize(test, font=legend_font)
-                            if tw_test <= avail_name_w or not curr_line:
-                                curr_line.append(w)
-                            else:
-                                name_lines.append(' '.join(curr_line))
-                                curr_line = [w]
-                        if curr_line:
+                    avail_name_w = col_w - pill_w - 18
+                    
+                    words = name_str.split(' ')
+                    name_lines = []
+                    curr_line = []
+                    for w in words:
+                        test = ' '.join(curr_line + [w]) if curr_line else w
+                        try:
+                            tb_test = draw.textbbox((0, 0), test, font=legend_font)
+                            tw_test = tb_test[2] - tb_test[0]
+                        except AttributeError:
+                            tw_test, _ = draw.textsize(test, font=legend_font)
+                        if tw_test <= avail_name_w or not curr_line:
+                            curr_line.append(w)
+                        else:
                             name_lines.append(' '.join(curr_line))
-                            
-                        tag_layouts.append({
-                            'num_str': num_str,
-                            'raw_name': raw_name,
-                            'name_lines': name_lines,
-                            'pill_w': pill_w,
-                            'pill_h': pill_h,
-                            'tw_n': tw_n,
-                            'th_n': th_n,
-                            'tx_off': tx_off,
-                            'ty_off': ty_off
-                        })
+                            curr_line = [w]
+                    if curr_line:
+                        name_lines.append(' '.join(curr_line))
                         
-                    num_rows = math.ceil(num_tags / num_cols)
-                    for r in range(num_rows):
-                        row_items = tag_layouts[r * num_cols : (r + 1) * num_cols]
-                        max_lines = max(len(item['name_lines']) for item in row_items) if row_items else 1
-                        r_h = max(line_h, max_lines * line_spacing + 8)
-                        row_heights.append(r_h)
+                    tag_layouts.append({
+                        'num_str': num_str,
+                        'raw_name': raw_name,
+                        'name_lines': name_lines,
+                        'pill_w': pill_w,
+                        'pill_h': pill_h,
+                        'tw_n': tw_n,
+                        'th_n': th_n,
+                        'tx_off': tx_off,
+                        'ty_off': ty_off
+                    })
+                    
+                num_rows = math.ceil(num_tags / num_cols)
+                for r in range(num_rows):
+                    row_items = tag_layouts[r * num_cols : (r + 1) * num_cols]
+                    max_lines = max(len(item['name_lines']) for item in row_items) if row_items else 1
+                    r_h = max(line_h, max_lines * line_spacing + 8)
+                    row_heights.append(r_h)
 
-                tags_block_h = (header_h + sum(row_heights)) if num_tags > 0 else 0
+            tags_block_h = (header_h + sum(row_heights)) if num_tags > 0 else 0
+            
+            total_content_h = desc_block_h + tags_block_h
+            footer_h = (pad_top + total_content_h + pad_bottom) if total_content_h > 0 else 0
                 
-                total_content_h = desc_block_h + tags_block_h
-                footer_h = (pad_top + total_content_h + pad_bottom) if total_content_h > 0 else 0
-                    
-                if footer_h > 0:
-                    total_height = height + footer_h
-                    final_output_img = Image.new('RGBA', (width, total_height), (15, 23, 42, 255))
-                    final_output_img.paste(annotated, (0, 0))
-                    
-                    fdraw = ImageDraw.Draw(final_output_img)
-                    fdraw.line([(0, height), (width, height)], fill=box_color_rgba, width=max(2, line_width))
-                    
-                    current_y = height + pad_top
-                    
-                    # Render Description Block
-                    if desc_lines:
-                        fdraw.text((pad_left, current_y), "PHOTO DESCRIPTION", font=legend_font, fill=box_color_rgba)
-                        current_y += header_h
-                        for line in desc_lines:
-                            fdraw.text((pad_left, current_y), line, font=legend_font, fill=(226, 232, 240, 255))
-                            current_y += line_h
-                        current_y += int(line_h * 0.5)
+            if footer_h > 0:
+                total_height = height + footer_h
+                final_output_img = Image.new('RGBA', (width, total_height), props["legend_bg"])
+                final_output_img.paste(annotated, (0, 0))
+                
+                fdraw = ImageDraw.Draw(final_output_img)
+                fdraw.line([(0, height), (width, height)], fill=props["legend_divider"], width=max(2, line_width))
+                
+                current_y = height + pad_top
+                
+                # Render Description Block
+                if desc_lines:
+                    fdraw.text((pad_left, current_y), "PHOTO DESCRIPTION", font=legend_font, fill=props["legend_header"])
+                    current_y += header_h
+                    for line in desc_lines:
+                        shaped_line = shape_persian_arabic_text(line)
+                        fdraw.text((pad_left, current_y), shaped_line, font=legend_font, fill=props["legend_text"])
+                        current_y += line_h
+                    current_y += int(line_h * 0.5)
 
-                    # Render Tagged Persons Block
-                    if num_tags > 0:
-                        fdraw.text((pad_left, current_y), "TAGGED PERSONS", font=legend_font, fill=box_color_rgba)
-                        current_y += header_h
-                        
-                        y_grid_start = current_y
-                        for idx, layout in enumerate(tag_layouts):
-                            row = idx // num_cols
-                            col = idx % num_cols
-                            
-                            x_start = pad_left + col * col_w
-                            y_row = y_grid_start + sum(row_heights[:row])
-                            r_h = row_heights[row]
-                            
-                            pill_w = layout['pill_w']
-                            pill_h = layout['pill_h']
-                            
-                            x_pill = x_start
-                            y_pill = y_row + (r_h - pill_h) // 2
-                            
-                            try:
-                                fdraw.rounded_rectangle([x_pill, y_pill, x_pill + pill_w, y_pill + pill_h], 
-                                                        radius=pill_h // 2, 
-                                                        fill=box_color_rgba, 
-                                                        outline=(255, 255, 255, 255), 
-                                                        width=1)
-                            except AttributeError:
-                                fdraw.rectangle([x_pill, y_pill, x_pill + pill_w, y_pill + pill_h], 
-                                                fill=box_color_rgba, 
-                                                outline=(255, 255, 255, 255), 
-                                                width=1)
-                                
-                            ptx = x_pill + (pill_w - layout['tw_n']) / 2.0 - layout['tx_off']
-                            pty = y_pill + (pill_h - layout['th_n']) / 2.0 - layout['ty_off']
-                            fdraw.text((ptx, pty), layout['num_str'], font=legend_font, fill=(255, 255, 255, 255))
-                            
-                            name_x = x_pill + pill_w + 10
-                            name_color = (241, 245, 249, 255) if layout['raw_name'] else (148, 163, 184, 255)
-                            total_name_h = len(layout['name_lines']) * line_spacing
-                            name_y_start = y_row + (r_h - total_name_h) // 2
-                            
-                            for l_idx, line_txt in enumerate(layout['name_lines']):
-                                line_y = name_y_start + l_idx * line_spacing
-                                fdraw.text((name_x, line_y), line_txt, font=legend_font, fill=name_color)
-                else:
-                    final_output_img = annotated
+                # Render Tagged Persons Block
+                if num_tags > 0:
+                    fdraw.text((pad_left, current_y), "TAGGED PERSONS", font=legend_font, fill=props["legend_header"])
+                    current_y += header_h
                     
-            ext = os.path.splitext(output_path)[1].lower()
-            if ext in ('.jpg', '.jpeg'):
-                fmt = 'JPEG'
-            elif ext == '.png':
-                fmt = 'PNG'
-            elif ext == '.webp':
-                fmt = 'WEBP'
+                    y_grid_start = current_y
+                    for idx, layout in enumerate(tag_layouts):
+                        row = idx // num_cols
+                        col = idx % num_cols
+                        
+                        x_start = pad_left + col * col_w
+                        y_row = y_grid_start + sum(row_heights[:row])
+                        r_h = row_heights[row]
+                        
+                        pill_w = layout['pill_w']
+                        pill_h = layout['pill_h']
+                        
+                        x_pill = x_start
+                        y_pill = y_row + (r_h - pill_h) // 2
+                        
+                        preset_lower = str(style_preset or "Classic").strip().lower()
+                        is_single_outline = "outline" in preset_lower
+                        is_minimal = "minimal" in preset_lower
+                        is_borderless = "borderless" in preset_lower
+                        is_print = "print" in preset_lower
+
+                        keyline_rgba = props.get("badge_keyline_rgb", (255, 255, 255, 255))
+                        l_text_color = badge_text_rgba
+
+                        if is_single_outline:
+                            l_fill = box_color_rgba
+                            l_outline = keyline_rgba
+                            l_width = 1
+                        elif is_minimal or is_borderless:
+                            l_fill = box_color_rgba
+                            l_outline = None
+                            l_width = 0
+                        elif is_print:
+                            l_fill = box_color_rgba
+                            l_outline = (0, 0, 0, 255) if box_color in ((255, 255, 255), (248, 250, 252)) else keyline_rgba
+                            l_width = 1
+                        else:
+                            l_fill = box_color_rgba
+                            l_outline = keyline_rgba
+                            l_width = 1
+
+                        shape_leg = norm_shape
+                        if shape_leg == "square":
+                            fdraw.rectangle([x_pill, y_pill, x_pill + pill_w, y_pill + pill_h], 
+                                            fill=l_fill, 
+                                            outline=l_outline if l_width > 0 else None, 
+                                            width=l_width)
+                        elif shape_leg == "rounded_square":
+                            cr_legend = max(2, int(pill_h * 0.28))
+                            fdraw.rounded_rectangle([x_pill, y_pill, x_pill + pill_w, y_pill + pill_h], 
+                                                    radius=cr_legend, 
+                                                    fill=l_fill, 
+                                                    outline=l_outline if l_width > 0 else None, 
+                                                    width=l_width)
+                        else:
+                            fdraw.rounded_rectangle([x_pill, y_pill, x_pill + pill_w, y_pill + pill_h], 
+                                                    radius=pill_h // 2, 
+                                                    fill=l_fill, 
+                                                    outline=l_outline if l_width > 0 else None, 
+                                                    width=l_width)
+                            
+                        ptx = x_pill + (pill_w - layout['tw_n']) / 2.0 - layout['tx_off']
+                        pty = y_pill + (pill_h - layout['th_n']) / 2.0 - layout['ty_off']
+                        fdraw.text((ptx, pty), layout['num_str'], font=legend_font, fill=l_text_color)
+                        
+                        name_x = x_pill + pill_w + 10
+                        if layout['raw_name']:
+                            name_color = props["legend_text"]
+                        else:
+                            name_color = (148, 163, 184, 255) if "print" not in str(style_preset).lower() else (100, 116, 139, 255)
+                            
+                        total_name_h = len(layout['name_lines']) * line_spacing
+                        name_y_start = y_row + (r_h - total_name_h) // 2
+                        
+                        for l_idx, line_txt in enumerate(layout['name_lines']):
+                            line_y = name_y_start + l_idx * line_spacing
+                            shaped_name = shape_persian_arabic_text(line_txt)
+                            fdraw.text((name_x, line_y), shaped_name, font=legend_font, fill=name_color)
             else:
-                fmt = 'JPEG'
+                final_output_img = annotated
                 
-            if fmt == 'JPEG' and final_output_img.mode in ('RGBA', 'LA'):
-                final_output_img = final_output_img.convert('RGB')
-                
-            save_params = {'format': fmt}
-            if fmt == 'JPEG':
-                save_params['quality'] = 95
-            elif fmt == 'WEBP':
-                save_params['quality'] = 95
-                
-            final_output_img.save(output_path, **save_params)
-            return True
+        if output_path is None:
+            return final_output_img
+            
+        ext = os.path.splitext(output_path)[1].lower()
+        if ext in ('.jpg', '.jpeg'):
+            fmt = 'JPEG'
+        elif ext == '.png':
+            fmt = 'PNG'
+        elif ext == '.webp':
+            fmt = 'WEBP'
+        else:
+            fmt = 'JPEG'
+            
+        if fmt == 'JPEG' and final_output_img.mode in ('RGBA', 'LA'):
+            final_output_img = final_output_img.convert('RGB')
+            
+        save_params = {'format': fmt}
+        if fmt == 'JPEG':
+            save_params['quality'] = 95
+        elif fmt == 'WEBP':
+            save_params['quality'] = 95
+            
+        final_output_img.save(output_path, **save_params)
+        return True
     except Exception as e:
         print(f"Error drawing annotations on image: {e}")
         return False
