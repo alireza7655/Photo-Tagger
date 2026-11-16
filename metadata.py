@@ -467,7 +467,7 @@ def write_interactive_html(image_path, tags, description, color_style=None, font
             name_escaped = html.escape(raw_name)
             
             tags_html += f"""
-        <div class="face-tag" style="left: {left:.2f}%; top: {top:.2f}%; width: {w:.2f}%; height: {h:.2f}%;">
+        <div class="face-tag" tabindex="0" style="left: {left:.2f}%; top: {top:.2f}%; width: {w:.2f}%; height: {h:.2f}%;">
             <div class="tooltip" dir="auto">{name_escaped}</div>
         </div>"""
 
@@ -526,38 +526,33 @@ def write_interactive_html(image_path, tags, description, color_style=None, font
         }}
         .tooltip {{
             position: absolute;
-            bottom: calc(100% + 8px);
-            left: 50%;
-            transform: translateX(-50%) scale(0.95);
+            box-sizing: border-box;
+            left: 0;
+            transform: none;
             background-color: {color_hex};
             color: white;
             padding: 6px 12px;
             border-radius: 6px;
             font-size: {font_size_px}px;
             font-weight: bold;
-            white-space: nowrap;
+            white-space: normal;
+            overflow-wrap: anywhere;
+            width: max-content;
             unicode-bidi: plaintext;
             opacity: 0;
             visibility: hidden;
             pointer-events: none;
-            transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: opacity 0.15s ease;
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
             z-index: 10;
         }}
-        .tooltip::after {{
-            content: '';
-            position: absolute;
-            top: 100%;
-            left: 50%;
-            transform: translateX(-50%);
-            border-width: 6px;
-            border-style: solid;
-            border-color: {color_hex} transparent transparent transparent;
-        }}
-        .face-tag:hover .tooltip {{
+        .face-tag:hover .tooltip,
+        .face-tag:focus .tooltip {{
             opacity: 1;
             visibility: visible;
-            transform: translateX(-50%) scale(1);
+        }}
+        .face-tag:focus-visible {{
+            outline: 2px solid {hover_hex};
         }}
         .description-banner {{
             position: absolute;
@@ -589,6 +584,43 @@ def write_interactive_html(image_path, tags, description, color_style=None, font
         {tags_html}
         {desc_banner_html}
     </div>
+
+<script>
+(() => {{
+    const photo = document.querySelector('.container');
+    const tags = [...photo.querySelectorAll('.face-tag')];
+    function positionTooltip(tag) {{
+        const tip = tag.querySelector('.tooltip');
+        const padding = Math.min(6, photo.clientWidth / 4, photo.clientHeight / 4);
+        const availableWidth = Math.max(1, photo.clientWidth - padding * 2);
+        const availableHeight = Math.max(1, photo.clientHeight - padding * 2);
+        tip.style.maxWidth = availableWidth + 'px';
+        tip.style.maxHeight = availableHeight + 'px';
+        tip.style.overflow = 'auto';
+        const width = tip.offsetWidth;
+        const height = tip.offsetHeight;
+        const x = Math.max(padding, Math.min(
+            tag.offsetLeft + tag.offsetWidth / 2 - width / 2,
+            photo.clientWidth - width - padding));
+        const above = tag.offsetTop - height - 8;
+        const preferredY = above >= padding ? above : tag.offsetTop + tag.offsetHeight + 8;
+        const y = Math.max(padding, Math.min(preferredY, photo.clientHeight - height - padding));
+        // Absolute children start inside the face box's border.
+        tip.style.left = (x - tag.offsetLeft - tag.clientLeft) + 'px';
+        tip.style.top = (y - tag.offsetTop - tag.clientTop) + 'px';
+    }}
+    const update = () => tags.forEach(positionTooltip);
+    tags.forEach(tag => {{
+        tag.addEventListener('mouseenter', () => positionTooltip(tag));
+        tag.addEventListener('focus', () => positionTooltip(tag));
+    }});
+    new ResizeObserver(update).observe(photo);
+    photo.querySelector('img').addEventListener('load', update);
+    if (document.fonts) document.fonts.ready.then(update);
+    update();
+}})();
+</script>
+
 </body>
 </html>
 """

@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.0.1
+
+- Unified Save with an optional, remembered photo metadata setting.
+- Kept interactive HTML names within the photo at all four edges, with wrapping and responsive placement.
+- Constrained OpenCV to version 4 for the required face-detection API.
+- Documented the Python source installation for personal use.
+
+
 ## 3.0.0
 
 - Added the charcoal Tagging, Layout, and Preview workspace, with a unified inspector and bilingual Help credits.

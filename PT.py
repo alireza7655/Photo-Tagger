@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import customtkinter as ctk
@@ -47,7 +48,7 @@ try:
     with open(VERSION_FILE, "r", encoding="utf-8") as _vf:
         APP_VERSION = _vf.read().strip()
 except Exception:
-    APP_VERSION = "3.0.0" 
+    APP_VERSION = "3.0.1" 
 
 # Configure customtkinter appearance
 ctk.set_appearance_mode("Dark")
@@ -411,6 +412,17 @@ class PhotoTaggerApp(ctk.CTk):
         self.focus_force()
         
         # State management
+        self._save_preferences_path = os.path.join(
+            os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
+            "Photo Tagger", "preferences.json",
+        )
+        write_tags = False
+        try:
+            with open(self._save_preferences_path, encoding="utf-8") as preferences:
+                write_tags = json.load(preferences).get("write_tags_on_save") is True
+        except (OSError, ValueError, AttributeError):
+            pass
+        self.write_tags_on_save = tk.BooleanVar(master=self, value=write_tags)
         self.current_image_path = None
         self.image_list = []
         self.current_image_idx = -1
@@ -682,32 +694,21 @@ class PhotoTaggerApp(ctk.CTk):
         self.combo_format.set("Format: Original")
         self.combo_format.pack(side="right", padx=2)
 
-        # Neutral Action: Write Tags (Directly writes EXIF/XMP to photo)
-        self.btn_write_tags = IconLabelButton(
-            self.action_frame, 
-            text="Write Tags", 
-            image=self.icon_write_tags,
-            compound="left",
-            command=self.save_current, 
-            width=106, 
-            height=34,
-            fg_color="transparent", 
-            hover_color=COLOR_SURFACE_HOVER, 
-            border_width=0,
-            text_color=COLOR_TEXT_PRIMARY, 
-            font=("Segoe UI Semibold", 13),
-            corner_radius=6
+        self.btn_save_options = ctk.CTkButton(
+            self.action_frame, text="▾", command=self.show_save_options,
+            width=28, height=34, font=("Segoe UI", 15),
+            fg_color="transparent", hover_color=COLOR_SURFACE_HOVER,
+            text_color=COLOR_TEXT_PRIMARY, border_width=0,
         )
-        self.btn_write_tags.pack(side="right", padx=2)
-        self.btn_save = self.btn_write_tags
+        self.btn_save_options.pack(side="right", padx=(0, 2))
 
         # Primary Action: Save Project (Solid accent button in Edit modes)
         self.btn_save_project = IconLabelButton(
             self.action_frame, 
-            text="Save Project", 
+            text="Save", 
             image=self.icon_save,
             compound="left",
-            command=self.save_project_only, 
+            command=self.on_save_project, 
             width=108, 
             height=34,
             fg_color=COLOR_ACCENT_PRIMARY, 
@@ -716,7 +717,8 @@ class PhotoTaggerApp(ctk.CTk):
             font=("Segoe UI", 12, "bold"),
             corner_radius=6
         )
-        self.btn_save_project.pack(side="right", padx=2)
+        self.btn_save_project.pack(side="right", padx=(2, 0))
+        self.btn_save = self.btn_save_project
 
         # Grouped Overflow for secondary actions (Open Folder, Help, About)
         self.btn_overflow = ctk.CTkButton(
@@ -1141,7 +1143,7 @@ class PhotoTaggerApp(ctk.CTk):
         self.advisory_card.bind("<Configure>", _on_advisory_card_resize)
 
         # Write Tags Button in Details Tab (Retired in favor of authoritative top action)
-        self.btn_write_tags_tab = ctk.CTkButton(
+        self.btn_save_options_tab = ctk.CTkButton(
             self.tab_details_frame,
             text="Write Tags to Photo (EXIF/XMP)",
             image=self.icon_write_tags,
@@ -1154,7 +1156,7 @@ class PhotoTaggerApp(ctk.CTk):
             font=("Segoe UI", 13, "bold"),
             corner_radius=6
         )
-        # self.btn_write_tags_tab is retired from UI to avoid duplicate actions
+        # self.btn_save_options_tab is retired from UI to avoid duplicate actions
 
         # Tab 3: Appearance Tab Frame
         self.tab_appearance_frame = ctk.CTkScrollableFrame(self.tab_container, fg_color="transparent")
@@ -1636,8 +1638,7 @@ class PhotoTaggerApp(ctk.CTk):
             ]),
             ("KEYBOARD SHORTCUTS", [
                 ("Ctrl + O", "Open a single photo"),
-                ("Ctrl + S", "Save project sidecar (.phototagger.json)"),
-                ("Ctrl + W", "Write metadata tags directly to photo (EXIF/XMP)"),
+                ("Ctrl + S", "Save project and optionally embed tags (Save options)"),
                 ("Ctrl + E", "Export tagged composite image to disk"),
                 ("Ctrl + 0", "Reset zoom and fit photo to canvas view"),
                 ("Left / Right", "Navigate through photos in filmstrip"),
@@ -1706,8 +1707,8 @@ class PhotoTaggerApp(ctk.CTk):
             WidgetTooltip(self.btn_open_file, "Open Single Photo (Ctrl+O)")
             if hasattr(self, 'btn_open_folder'):
                 WidgetTooltip(self.btn_open_folder, "Open Folder with Filmstrip")
-            WidgetTooltip(self.btn_save_project, "Save Project: Saves badge layout, styles, and tags to sidecar file (.phototagger.json) without touching photo bytes. (Ctrl+S)")
-            WidgetTooltip(self.btn_write_tags, "Write Tags to Photo: Embeds names, face regions, and description directly into the photo file (EXIF/XMP). (Ctrl+W)")
+            WidgetTooltip(self.btn_save_project, "Save tags, layout and appearance. Photo metadata is optional in Save options. (Ctrl+S)")
+            WidgetTooltip(self.btn_save_options, "Save options: optionally embed tags in the original photo")
             if hasattr(self, 'combo_format'):
                 WidgetTooltip(self.combo_format, "Export Format: Output image format for Export Files (Original, JPEG, PNG, WebP). Does not alter original photo during Write Tags.")
             WidgetTooltip(self.btn_export_annotated, "Export Files: Generates standalone HTML, SVG, and tagged JPEG/PNG/WebP composite copies. (Ctrl+E)")
@@ -1748,7 +1749,7 @@ class PhotoTaggerApp(ctk.CTk):
     def setup_keyboard_shortcuts(self):
         buttons = (
             self.btn_open_file, self.btn_open_folder, self.btn_help, self.btn_overflow,
-            self.btn_save_project, self.btn_write_tags, self.btn_export_annotated,
+            self.btn_save_project, self.btn_save_options, self.btn_export_annotated,
             self.btn_rotate_left, self.btn_rotate_right, self.c_btn_zoom_in,
             self.c_btn_zoom_out, self.c_btn_fit,
             *self.mode_switcher._buttons_dict.values(),
@@ -1782,8 +1783,6 @@ class PhotoTaggerApp(ctk.CTk):
         # File / Action shortcuts
         self.bind("<Control-s>", lambda e: self.on_save_project())
         self.bind("<Control-S>", lambda e: self.on_save_project())
-        self.bind("<Control-w>", lambda e: self.save_current())
-        self.bind("<Control-W>", lambda e: self.save_current())
         self.bind("<Control-e>", lambda e: self.export_annotated_photo())
         self.bind("<Control-E>", lambda e: self.export_annotated_photo())
         self.bind("<Control-o>", lambda e: self.open_image())
@@ -1906,9 +1905,9 @@ class PhotoTaggerApp(ctk.CTk):
         if logical_w < 1180:
             # Compact Layout (< 1180): Retain primary actions, fold secondary actions into overflow [•••]
             if hasattr(self, 'btn_save_project'):
-                self.btn_save_project.configure(text="Save Project", width=108)
+                self.btn_save_project.configure(text="Save", width=90)
             if hasattr(self, 'btn_write_tags'):
-                self.btn_write_tags.configure(text="Write Tags", width=106)
+                self.btn_save_options.configure(text="▾", width=28)
             if hasattr(self, 'btn_export_annotated'):
                 self.btn_export_annotated.configure(text="Export Files", width=108)
             if hasattr(self, 'btn_open_file'):
@@ -1930,9 +1929,9 @@ class PhotoTaggerApp(ctk.CTk):
             if hasattr(self, 'lbl_brand_badge') and self.lbl_brand_badge.winfo_manager() != "pack" and hasattr(self, 'btn_open_file'):
                 self.lbl_brand_badge.pack(side="left", padx=(0, 8), before=self.btn_open_file)
             if hasattr(self, 'btn_save_project'):
-                self.btn_save_project.configure(text="Save Project", width=108)
+                self.btn_save_project.configure(text="Save", width=90)
             if hasattr(self, 'btn_write_tags'):
-                self.btn_write_tags.configure(text="Write Tags to Photo", width=140)
+                self.btn_save_options.configure(text="▾", width=28)
             if hasattr(self, 'btn_export_annotated'):
                 self.btn_export_annotated.configure(text="Export Files", width=108)
             if hasattr(self, 'btn_open_file'):
@@ -2304,13 +2303,13 @@ class PhotoTaggerApp(ctk.CTk):
                 if not self.load_image(remaining[next_idx]):
                     return
             else:
-                if self.is_modified:
+                if self.has_unsaved_work():
                     response = messagebox.askyesnocancel(
                         "Unsaved Changes",
                         "Save your changes before closing this photo?",
                         parent=self,
                     )
-                    if response is None or (response and not self.save_current()):
+                    if response is None or (response and not self.on_save_project()):
                         return
                     if not response:
                         discard_draft(self.current_image_path)
@@ -2482,7 +2481,7 @@ class PhotoTaggerApp(ctk.CTk):
         save_project_document(self.current_doc, is_draft=True)
 
     def on_closing(self):
-        if getattr(self, 'is_modified', False):
+        if self.has_unsaved_work():
             name = os.path.basename(self.current_image_path) if getattr(self, 'current_image_path', None) else "Current Photo"
             resp = messagebox.askyesnocancel(
                 "Unsaved Changes",
@@ -2494,7 +2493,7 @@ class PhotoTaggerApp(ctk.CTk):
             if resp is None:  # Cancel -> Return to application without closing
                 return
             elif resp is True:  # Yes -> Save
-                if not self.save_current():
+                if not self.on_save_project():
                     if hasattr(self, 'winfo_exists'):
                         try:
                             messagebox.showerror("Save Failed", "Could not save changes. Exit cancelled to prevent data loss.")
@@ -2688,8 +2687,57 @@ class PhotoTaggerApp(ctk.CTk):
             self.update_badge_shape_preview()
         self.draw_canvas()
 
+    def has_unsaved_work(self):
+        return bool(self.is_project_dirty or
+                    (self.write_tags_on_save.get() and self.is_metadata_dirty))
+
+    def show_save_options(self):
+        menu = tk.Menu(self, tearoff=0, bg=COLOR_WORKSPACE,
+                       fg=COLOR_TEXT_PRIMARY, font=("Segoe UI", 11))
+        menu.add_checkbutton(
+            label="Also write tags into the photo",
+            variable=self.write_tags_on_save,
+            command=self.save_preferences,
+        )
+        try:
+            button = self.btn_save_options
+            menu.tk_popup(button.winfo_rootx(), button.winfo_rooty() + button.winfo_height())
+        finally:
+            menu.grab_release()
+
+    def save_preferences(self):
+        try:
+            folder = os.path.dirname(self._save_preferences_path)
+            os.makedirs(folder, exist_ok=True)
+            temporary = self._save_preferences_path + ".tmp"
+            with open(temporary, "w", encoding="utf-8") as output:
+                json.dump({"write_tags_on_save": self.write_tags_on_save.get()}, output)
+            os.replace(temporary, self._save_preferences_path)
+        except OSError as error:
+            messagebox.showwarning("Save options", f"Could not remember this preference: {error}", parent=self)
+
     def on_save_project(self):
-        return self.save_project_only()
+        if not self.save_project_only():
+            return False
+        if not self.write_tags_on_save.get():
+            return True
+        # Metadata writes apply to the original. Export format is independent.
+        previous_format = self.combo_format.get()
+        try:
+            self.combo_format.set("Format: Original")
+            if not self.save_current():
+                self.set_status("Project saved. Writing tags into the photo failed.")
+                messagebox.showwarning(
+                    "Photo tags were not saved",
+                    "Your editable project is saved, but tags could not be written into the photo. "
+                    "You can retry Save or turn off this option.",
+                    parent=self,
+                )
+                return False
+            self.set_status("Project saved and tags written into the photo.")
+            return True
+        finally:
+            self.combo_format.set(previous_format)
 
     def save_project_only(self):
         """
@@ -2752,7 +2800,7 @@ class PhotoTaggerApp(ctk.CTk):
 
         # 1. Unsaved changes guard on departure (STAGED, transactional)
         pending_discard_departure = False
-        if getattr(self, 'is_modified', False) and getattr(self, 'current_image_path', None):
+        if self.has_unsaved_work() and getattr(self, 'current_image_path', None):
             resp = messagebox.askyesnocancel(
                 "Unsaved Changes",
                 f"You have unsaved changes in '{os.path.basename(self.current_image_path)}'.\n\n"
@@ -2763,7 +2811,7 @@ class PhotoTaggerApp(ctk.CTk):
             if resp is None:  # Cancel -> Abort departure completely
                 return False
             elif resp is True:  # Yes -> Save
-                if not self.save_current():
+                if not self.on_save_project():
                     return False
             else:  # No -> Stage discard for when incoming image successfully loads
                 pending_discard_departure = True

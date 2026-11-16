@@ -38,7 +38,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='PhotoTagger_v3.0.0',
+    name='PhotoTagger_v3.0.1',
     icon='app_icon.ico',
     debug=False,
     bootloader_ignore_signals=False,
