@@ -1286,6 +1286,16 @@ class PhotoTaggerApp(ctk.CTk):
             text_color="#818cf8"
         )
         self.lbl_scale_value.pack(side="right")
+        self.scale_input = tk.StringVar(master=self, value="1.00")
+        self.entry_badge_scale = ctk.CTkEntry(
+            self.scale_header_frame, textvariable=self.scale_input,
+            width=64, height=28, justify="center", font=("Segoe UI", 13),
+        )
+        self.entry_badge_scale.pack(side="right", padx=(4, 8))
+        self.entry_badge_scale.bind("<Return>", self.on_scale_input_committed)
+        self.entry_badge_scale.bind("<FocusOut>", self.on_scale_input_committed)
+        WidgetTooltip(self.entry_badge_scale, "Badge scale from 0.50 to 2.00. Press Enter to apply.")
+
 
         self.slider_badge_scale = ctk.CTkSlider(
             self.appearance_card,
@@ -2144,6 +2154,8 @@ class PhotoTaggerApp(ctk.CTk):
                 self.slider_badge_scale.set(scale_val)
             if hasattr(self, 'lbl_scale_value'):
                 self.lbl_scale_value.configure(text=f"{scale_val:.2f}x")
+                if hasattr(self, "scale_input"):
+                    self.scale_input.set(f"{scale_val:.2f}")
         if hasattr(self, 'update_swatch_selection'):
             self.update_swatch_selection()
         self.render_revision = getattr(self, 'render_revision', 0) + 1
@@ -2315,6 +2327,7 @@ class PhotoTaggerApp(ctk.CTk):
                         discard_draft(self.current_image_path)
                 self.current_image_path = None
                 self.original_pil_image = None
+                self.draw_canvas()
                 self.current_doc = None
                 self.faces = []
                 self.description = ""
@@ -2541,6 +2554,24 @@ class PhotoTaggerApp(ctk.CTk):
                     else:
                         btn.configure(border_width=0)
 
+    def on_scale_input_committed(self, event=None):
+        import math
+        previous = self.get_selected_font_size_style()["scale"]
+        try:
+            value = float(self.scale_input.get().strip().rstrip("x×"))
+            if not math.isfinite(value) or not 0.5 <= value <= 2.0:
+                raise ValueError
+        except ValueError:
+            self.scale_input.set(f"{previous:.2f}")
+            self.set_status("Enter a badge scale from 0.50 to 2.00.")
+            return "break"
+        value = round(value, 2)
+        self.scale_input.set(f"{value:.2f}")
+        self.slider_badge_scale.set(value)
+        if abs(previous - value) > 0.001:
+            self.on_scale_slider_changed(value)
+        return "break"
+
     def on_scale_slider_changed(self, val):
         try:
             val_float = round(float(val), 2)
@@ -2550,6 +2581,8 @@ class PhotoTaggerApp(ctk.CTk):
         self._badge_scale_factor = val_float
         if hasattr(self, 'lbl_scale_value'):
             self.lbl_scale_value.configure(text=f"{val_float:.2f}x")
+            if hasattr(self, "scale_input"):
+                self.scale_input.set(f"{val_float:.2f}")
 
         scale_preset_map = {
             0.5: "Micro (0.5x)",
@@ -2975,6 +3008,8 @@ class PhotoTaggerApp(ctk.CTk):
                             self.slider_badge_scale.set(scale_val)
                         if hasattr(self, 'lbl_scale_value'):
                             self.lbl_scale_value.configure(text=f"{scale_val:.2f}x")
+                            if hasattr(self, "scale_input"):
+                                self.scale_input.set(f"{scale_val:.2f}")
                 loaded_shape = getattr(staged_doc.style, 'badge_shape', 'auto')
                 from models import normalize_badge_shape
                 norm_shape = normalize_badge_shape(loaded_shape)
@@ -3099,6 +3134,10 @@ class PhotoTaggerApp(ctk.CTk):
 
     def draw_canvas(self):
         if not self.original_pil_image:
+            self.canvas.delete("all")
+            self.tk_image = None
+            self.tk_preview = None
+            self.last_bg_key = None
             return
             
         canvas_w = max(50, self.canvas.winfo_width())

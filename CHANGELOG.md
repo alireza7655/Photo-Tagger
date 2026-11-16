@@ -2,6 +2,9 @@
 
 ## 3.0.1
 
+- Added a numeric badge scale field synchronized with the slider.
+- Cleared the canvas when closing the last filmstrip photo.
+
 - Unified Save with an optional, remembered photo metadata setting.
 - Kept interactive HTML names within the photo at all four edges, with wrapping and responsive placement.
 - Constrained OpenCV to version 4 for the required face-detection API.
