@@ -3670,20 +3670,21 @@ class PhotoTaggerApp(ctk.CTk):
 
         # Layout Mode: check if clicked on a badge to initiate drag
         if getattr(self, 'active_workspace_mode', 'tagging') == 'layout':
-            items = list(self.canvas.find_overlapping(event.x - 14, event.y - 14, event.x + 14, event.y + 14))
-            for item in items:
-                tags = self.canvas.gettags(item)
-                for t in tags:
-                    if t.startswith("badge_") and not t == "badge_element":
-                        try:
-                            b_idx = int(t.split("_")[1])
-                            self.dragging_badge_idx = b_idx
-                            self.select_face(b_idx)
-                            return
-                        except Exception:
-                            pass
+            candidates = []
+            for idx in range(len(self.faces)):
+                bounds = self.canvas.bbox(f"badge_{idx}")
+                if bounds is None:
+                    continue
+                left, top, right, bottom = bounds
+                if left - 8 <= event.x <= right + 8 and top - 8 <= event.y <= bottom + 8:
+                    outside = not (left <= event.x <= right and top <= event.y <= bottom)
+                    distance = (event.x - (left + right) / 2) ** 2 + (event.y - (top + bottom) / 2) ** 2
+                    candidates.append((outside, distance, idx))
+            if candidates:
+                self.dragging_badge_idx = min(candidates)[2]
+                self.select_face(self.dragging_badge_idx)
             return
-            
+
         # Check if clicked on a resize handle first
         if hasattr(self, 'hovered_resize_handle') and self.hovered_resize_handle is not None:
             self.resizing = True
