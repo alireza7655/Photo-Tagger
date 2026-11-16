@@ -2,6 +2,9 @@
 
 ## 3.0.1
 
+- Preserved selected accent, scale and geometry when switching presets.
+- Differentiated preset outline weight and numeral treatment.
+
 - Added a numeric badge scale field synchronized with the slider.
 - Cleared the canvas when closing the last filmstrip photo.
 

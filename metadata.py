@@ -1013,6 +1013,22 @@ def get_contrasting_colors(fill_rgb):
 PRESETS = ["Classic", "High Contrast", "Minimal", "Borderless", "Single Outline", "Print"]
 
 
+def get_badge_treatment(preset, radius):
+    """Independent of the user's chosen color, geometry, and badge scale."""
+    name = str(preset or "Classic").lower()
+    if "borderless" in name:
+        return 0, True, 1.0
+    if "minimal" in name:
+        return 0, False, 0.85
+    if "high" in name:
+        return max(3, round(radius * 0.25)), True, 1.0
+    if "outline" in name:
+        return max(1, round(radius * 0.065)), True, 1.0
+    if "print" in name:
+        return max(1, round(radius * 0.065)), False, 1.0
+    return max(2, round(radius * 0.13)), True, 1.0
+
+
 def get_preset_rendering_properties(style_preset="Classic", color_style=None):
     """
     Returns unified styling properties:
@@ -1282,7 +1298,10 @@ def draw_annotations_on_image(
         scale_factor = font_size_style.get("scale", 1.0) if font_size_style else 1.0
         font_size = max(14, int(min(width, height) / 50 * scale_factor))
         
+        border_pixels, bold_numerals, numeral_scale = get_badge_treatment(style_preset, get_badge_radius(width, height, font_size_style))
         font_paths = resolve_font_files_for_family(font_family)
+        regular_font_paths = [path for path in font_paths if not path.lower().endswith(("bd.ttf", "uib.ttf"))]
+        numeral_font_paths = font_paths if bold_numerals else regular_font_paths
         font = None
         for path in font_paths:
             try:
@@ -1380,6 +1399,7 @@ def draw_annotations_on_image(
                         b_outline = keyline_rgba
                         b_width = max(1, line_width // 2)
 
+                    b_width = border_pixels
                     shape_to_render = metrics.shape
 
                     if shape_to_render == "square":
@@ -1424,9 +1444,9 @@ def draw_annotations_on_image(
                     else:
                         badge_font_scale = 0.58
                         
-                    badge_font_size = max(8, int(badge_r * badge_font_scale))
+                    badge_font_size = max(8, int(badge_r * badge_font_scale * numeral_scale))
                     badge_font = None
-                    for path in font_paths:
+                    for path in numeral_font_paths:
                         try:
                             badge_font = ImageFont.truetype(path, badge_font_size)
                             break
@@ -1649,6 +1669,7 @@ def draw_annotations_on_image(
                             l_outline = keyline_rgba
                             l_width = 1
 
+                        l_width = get_badge_treatment(style_preset, pill_h / 2)[0]
                         shape_leg = norm_shape
                         if shape_leg == "square":
                             fdraw.rectangle([x_pill, y_pill, x_pill + pill_w, y_pill + pill_h], 

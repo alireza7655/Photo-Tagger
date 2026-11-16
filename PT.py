@@ -248,6 +248,9 @@ def draw_canvas_badge(canvas, cx, cy, num_str, r, fill_color, text_color="#fffff
         base_fill = fill_color
         num_color = calc_text
     
+    from metadata import get_badge_treatment
+    border_pixels, bold_numerals, numeral_scale = get_badge_treatment(style_preset, r)
+
     # Invisible base bounding rectangle so coords queries for tags return the outer bounding box
     canvas.create_rectangle(cx - hw, cy - hh, cx + hw, cy + hh, fill="", outline="", tags=tags)
     
@@ -255,7 +258,7 @@ def draw_canvas_badge(canvas, cx, cy, num_str, r, fill_color, text_color="#fffff
         # Sharp square / rectangle
         if shadow_col:
             canvas.create_rectangle(cx - hw - 1, cy - hh - 1, cx + hw + 1, cy + hh + 1, fill="", outline=shadow_col, width=1, tags=tags)
-        b_w = 2 if border_col else 0
+        b_w = border_pixels
         canvas.create_rectangle(cx - hw, cy - hh, cx + hw, cy + hh, fill=base_fill, outline=border_col or "", width=b_w, tags=tags)
     elif shape == "rounded_square":
         # CAD rounded rectangle with corner radius cr
@@ -275,23 +278,23 @@ def draw_canvas_badge(canvas, cx, cy, num_str, r, fill_color, text_color="#fffff
         
         if border_col:
             # Border lines
-            canvas.create_line(cx - hw + cr, cy - hh, cx + hw - cr, cy - hh, fill=border_col, width=2, tags=tags)
-            canvas.create_line(cx - hw + cr, cy + hh, cx + hw - cr, cy + hh, fill=border_col, width=2, tags=tags)
-            canvas.create_line(cx - hw, cy - hh + cr, cx - hw, cy + hh - cr, fill=border_col, width=2, tags=tags)
-            canvas.create_line(cx + hw, cy - hh + cr, cx + hw, cy + hh - cr, fill=border_col, width=2, tags=tags)
+            canvas.create_line(cx - hw + cr, cy - hh, cx + hw - cr, cy - hh, fill=border_col, width=border_pixels, tags=tags)
+            canvas.create_line(cx - hw + cr, cy + hh, cx + hw - cr, cy + hh, fill=border_col, width=border_pixels, tags=tags)
+            canvas.create_line(cx - hw, cy - hh + cr, cx - hw, cy + hh - cr, fill=border_col, width=border_pixels, tags=tags)
+            canvas.create_line(cx + hw, cy - hh + cr, cx + hw, cy + hh - cr, fill=border_col, width=border_pixels, tags=tags)
             
             # Border corner arcs
-            canvas.create_arc(cx - hw, cy - hh, cx - hw + 2*cr, cy - hh + 2*cr, start=90, extent=90, style="arc", outline=border_col, width=2, tags=tags)
-            canvas.create_arc(cx + hw - 2*cr, cy - hh, cx + hw, cy - hh + 2*cr, start=0, extent=90, style="arc", outline=border_col, width=2, tags=tags)
-            canvas.create_arc(cx + hw - 2*cr, cy + hh - 2*cr, cx + hw, cy + hh, start=270, extent=90, style="arc", outline=border_col, width=2, tags=tags)
-            canvas.create_arc(cx - hw, cy + hh - 2*cr, cx - hw + 2*cr, cy + hh, start=180, extent=90, style="arc", outline=border_col, width=2, tags=tags)
+            canvas.create_arc(cx - hw, cy - hh, cx - hw + 2*cr, cy - hh + 2*cr, start=90, extent=90, style="arc", outline=border_col, width=border_pixels, tags=tags)
+            canvas.create_arc(cx + hw - 2*cr, cy - hh, cx + hw, cy - hh + 2*cr, start=0, extent=90, style="arc", outline=border_col, width=border_pixels, tags=tags)
+            canvas.create_arc(cx + hw - 2*cr, cy + hh - 2*cr, cx + hw, cy + hh, start=270, extent=90, style="arc", outline=border_col, width=border_pixels, tags=tags)
+            canvas.create_arc(cx - hw, cy + hh - 2*cr, cx - hw + 2*cr, cy + hh, start=180, extent=90, style="arc", outline=border_col, width=border_pixels, tags=tags)
     else:
         # Auto: circle for single digit, pill for multi digits
         if not is_pill:
             if shadow_col:
                 canvas.create_oval(cx - r - 1.5, cy - r - 1.5, cx + r + 1.5, cy + r + 1.5, 
                                    fill="", outline=shadow_col, width=1.5, tags=tags)
-            b_w = 2 if border_col else 0
+            b_w = border_pixels
             canvas.create_oval(cx - r, cy - r, cx + r, cy + r, 
                                fill=base_fill, outline=border_col or "", width=b_w, tags=tags)
         else:
@@ -306,10 +309,10 @@ def draw_canvas_badge(canvas, cx, cy, num_str, r, fill_color, text_color="#fffff
             canvas.create_rectangle(cx - hw + r, cy - r, cx + hw - r, cy + r, fill=base_fill, outline="", tags=tags)
             if border_col:
                 # High contrast border
-                canvas.create_line(cx - hw + r, cy - r, cx + hw - r, cy - r, fill=border_col, width=2, tags=tags)
-                canvas.create_line(cx - hw + r, cy + r, cx + hw - r, cy + r, fill=border_col, width=2, tags=tags)
-                canvas.create_arc(cx - hw, cy - r, cx - hw + 2*r, cy + r, start=90, extent=180, style="arc", outline=border_col, width=2, tags=tags)
-                canvas.create_arc(cx + hw - 2*r, cy - r, cx + hw, cy + r, start=270, extent=180, style="arc", outline=border_col, width=2, tags=tags)
+                canvas.create_line(cx - hw + r, cy - r, cx + hw - r, cy - r, fill=border_col, width=border_pixels, tags=tags)
+                canvas.create_line(cx - hw + r, cy + r, cx + hw - r, cy + r, fill=border_col, width=border_pixels, tags=tags)
+                canvas.create_arc(cx - hw, cy - r, cx - hw + 2*r, cy + r, start=90, extent=180, style="arc", outline=border_col, width=border_pixels, tags=tags)
+                canvas.create_arc(cx + hw - 2*r, cy - r, cx + hw, cy + r, start=270, extent=180, style="arc", outline=border_col, width=border_pixels, tags=tags)
     
     digit_count = len(str(num_str))
     if digit_count <= 1:
@@ -321,7 +324,9 @@ def draw_canvas_badge(canvas, cx, cy, num_str, r, fill_color, text_color="#fffff
     else:
         font_sz = max(7, int(r * 0.58))
         
-    canvas.create_text(cx, cy, text=str(num_str), fill=num_color, font=(font_family, font_sz, "bold"), tags=tags)
+    font_sz = max(7, round(font_sz * numeral_scale))
+    canvas.create_text(cx, cy, text=str(num_str), fill=num_color,
+                       font=(font_family, font_sz, "bold" if bold_numerals else "normal"), tags=tags)
 
 
 def _resolve_app_badge_shape(app) -> str:
@@ -2127,35 +2132,6 @@ class PhotoTaggerApp(ctk.CTk):
 
     def on_preset_changed(self, preset_name):
         self.current_preset = preset_name
-        p = str(preset_name).strip().lower()
-        if "outline" in p:
-            self.combo_style_color.set("White")
-            self.combo_style_font_size.set("Auto (1.0x)")
-        elif "borderless" in p:
-            self.combo_style_color.set("Teal")
-            self.combo_style_font_size.set("Auto (1.0x)")
-        elif "high" in p:
-            self.combo_style_color.set("Yellow")
-            self.combo_style_font_size.set("Auto (1.0x)")
-        elif "minimal" in p:
-            self.combo_style_color.set("White")
-            self.combo_style_font_size.set("Small (0.7x)")
-        elif "print" in p:
-            self.combo_style_color.set("White")
-            self.combo_style_font_size.set("Auto (1.0x)")
-        else: # Classic / Studio Minimal
-            self.combo_style_color.set("Teal")
-            self.combo_style_font_size.set("Auto (1.0x)")
-        if hasattr(self, 'combo_style_font_size') and hasattr(self, 'get_selected_font_size_style') and callable(self.get_selected_font_size_style):
-            style_info = self.get_selected_font_size_style()
-            scale_val = style_info["scale"]
-            self._badge_scale_factor = scale_val
-            if hasattr(self, 'slider_badge_scale'):
-                self.slider_badge_scale.set(scale_val)
-            if hasattr(self, 'lbl_scale_value'):
-                self.lbl_scale_value.configure(text=f"{scale_val:.2f}x")
-                if hasattr(self, "scale_input"):
-                    self.scale_input.set(f"{scale_val:.2f}")
         if hasattr(self, 'update_swatch_selection'):
             self.update_swatch_selection()
         self.render_revision = getattr(self, 'render_revision', 0) + 1
