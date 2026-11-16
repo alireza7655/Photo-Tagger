@@ -1201,8 +1201,8 @@ def compute_default_badge_positions(tags, width, height, font_size_style=None, b
         
         chosen_pos = None
         if t.get('bx') is not None and t.get('by') is not None:
-            bx_custom = int(t['bx'] * width)
-            by_custom = int(t['by'] * height)
+            bx_custom = t['bx'] * width
+            by_custom = t['by'] * height
             chosen_pos = (bx_custom, by_custom)
         else:
             box_i = all_face_boxes[idx]
@@ -1274,7 +1274,7 @@ def draw_annotations_on_image(
     try:
         import math
         from PIL import Image, ImageDraw, ImageFont
-        tags = sort_faces_spatial(tags)
+        tags = sort_faces_spatial([dict(tag) for tag in tags])
         
         if isinstance(image_path, Image.Image):
             annotated = image_path.copy()

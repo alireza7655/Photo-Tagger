@@ -2,6 +2,8 @@
 
 ## 3.0.1
 
+- Kept Preview and raster exports from mutating saved badge positions.
+
 - Preserved selected accent, scale and geometry when switching presets.
 - Differentiated preset outline weight and numeral treatment.
 
